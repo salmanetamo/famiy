@@ -1,0 +1,43 @@
+{
+  "_about": "PoC-2 test fixture. A deliberately messy family exercising the three hard layout cases. Generation/layer is NOT stored — the layout must derive it.",
+  "_hardCases": {
+    "remarriage": "Idi (p1) partners Rama (s1), then remarries Zara (s2) — one person in two unions.",
+    "halfSiblings": "Ali & Hawa (Idi+Rama) vs Bina (Idi+Zara) share only one parent.",
+    "cousinMarriage": "Ali (grandchild via Idi) marries Sala (grandchild via Nana); both descend from Abou+Fati -> a diamond at their son Umar, plus a cross-family edge that stresses crossing minimization."
+  },
+  "persons": [
+    { "id": "g1", "name": "Abou",   "sex": "M", "birthYear": 1930 },
+    { "id": "g2", "name": "Fati",   "sex": "F", "birthYear": 1934 },
+
+    { "id": "p1", "name": "Idi",    "sex": "M", "birthYear": 1958 },
+    { "id": "p2", "name": "Nana",   "sex": "F", "birthYear": 1961 },
+    { "id": "s1", "name": "Rama",   "sex": "F", "birthYear": 1960 },
+    { "id": "s2", "name": "Zara",   "sex": "F", "birthYear": 1968 },
+    { "id": "s3", "name": "Moussa", "sex": "M", "birthYear": 1959 },
+
+    { "id": "c1", "name": "Ali",    "sex": "M", "birthYear": 1982 },
+    { "id": "c2", "name": "Hawa",   "sex": "F", "birthYear": 1985 },
+    { "id": "c3", "name": "Bina",   "sex": "F", "birthYear": 1990 },
+    { "id": "c4", "name": "Sala",   "sex": "F", "birthYear": 1984 },
+
+    { "id": "d1", "name": "Umar",   "sex": "M", "birthYear": 2008 }
+  ],
+  "parentChild": [
+    ["g1", "p1"], ["g2", "p1"],
+    ["g1", "p2"], ["g2", "p2"],
+
+    ["p1", "c1"], ["s1", "c1"],
+    ["p1", "c2"], ["s1", "c2"],
+    ["p1", "c3"], ["s2", "c3"],
+    ["p2", "c4"], ["s3", "c4"],
+
+    ["c1", "d1"], ["c4", "d1"]
+  ],
+  "partnerships": [
+    ["g1", "g2"],
+    ["p1", "s1"],
+    ["p1", "s2"],
+    ["p2", "s3"],
+    ["c1", "c4"]
+  ]
+}

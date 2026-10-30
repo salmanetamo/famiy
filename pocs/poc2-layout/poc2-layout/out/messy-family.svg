@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="634" height="560" font-family="system-ui,sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="10" y="68" font-size="11" fill="#94a3b8">Gen 0</text>
+<rect x="0" y="176" width="634" height="64" fill="#f1f5f9"/>
+<text x="10" y="212" font-size="11" fill="#94a3b8">Gen 1</text>
+<text x="10" y="356" font-size="11" fill="#94a3b8">Gen 2</text>
+<rect x="0" y="464" width="634" height="64" fill="#f1f5f9"/>
+<text x="10" y="500" font-size="11" fill="#94a3b8">Gen 3</text>
+<polyline points="198.0,84.0 198.0,129.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="310.0,84.0 310.0,94.0 202.7,94.0 202.7,129.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="436.0,228.0 436.0,273.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="534.0,228.0 534.0,238.0 440.7,238.0 440.7,273.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="408.0,228.0 408.0,238.0 314.7,238.0 314.7,273.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="310.0,228.0 310.0,273.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="198.0,228.0 198.0,238.0 90.7,238.0 90.7,273.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="86.0,228.0 86.0,273.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="548.0,372.0 548.0,382.0 93.0,382.0 93.0,417.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="88.3,372.0 88.3,417.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="202.7,143.0 202.7,153.0 422.0,153.0 422.0,188.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="198.0,143.0 198.0,188.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="440.7,287.0 440.7,297.0 548.0,297.0 548.0,332.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="436.0,287.0 436.0,332.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="312.3,287.0 312.3,332.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="88.3,287.0 88.3,332.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="90.7,431.0 90.7,476.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<rect x="156.0" y="44.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="198.0" y="65.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Abou</text>
+<text x="198.0" y="79.0" font-size="8.5" text-anchor="middle" fill="#64748b">1930</text>
+<rect x="268.0" y="44.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="310.0" y="65.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Fati</text>
+<text x="310.0" y="79.0" font-size="8.5" text-anchor="middle" fill="#64748b">1934</text>
+<rect x="380.0" y="188.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="422.0" y="209.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Idi</text>
+<text x="422.0" y="223.0" font-size="8.5" text-anchor="middle" fill="#64748b">1958</text>
+<rect x="44.0" y="188.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="86.0" y="209.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Moussa</text>
+<text x="86.0" y="223.0" font-size="8.5" text-anchor="middle" fill="#64748b">1959</text>
+<rect x="492.0" y="188.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="534.0" y="209.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Rama</text>
+<text x="534.0" y="223.0" font-size="8.5" text-anchor="middle" fill="#64748b">1960</text>
+<rect x="156.0" y="188.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="198.0" y="209.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Nana</text>
+<text x="198.0" y="223.0" font-size="8.5" text-anchor="middle" fill="#64748b">1961</text>
+<rect x="268.0" y="188.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="310.0" y="209.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Zara</text>
+<text x="310.0" y="223.0" font-size="8.5" text-anchor="middle" fill="#64748b">1968</text>
+<rect x="506.0" y="332.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="548.0" y="353.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Ali</text>
+<text x="548.0" y="367.0" font-size="8.5" text-anchor="middle" fill="#64748b">1982</text>
+<rect x="46.3" y="332.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="88.3" y="353.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Sala</text>
+<text x="88.3" y="367.0" font-size="8.5" text-anchor="middle" fill="#64748b">1984</text>
+<rect x="394.0" y="332.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="436.0" y="353.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Hawa</text>
+<text x="436.0" y="367.0" font-size="8.5" text-anchor="middle" fill="#64748b">1985</text>
+<rect x="270.3" y="332.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="312.3" y="353.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Bina</text>
+<text x="312.3" y="367.0" font-size="8.5" text-anchor="middle" fill="#64748b">1990</text>
+<rect x="48.7" y="476.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="90.7" y="497.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Umar</text>
+<text x="90.7" y="511.0" font-size="8.5" text-anchor="middle" fill="#64748b">2008</text>
+<circle cx="200.3" cy="136.0" r="5" fill="#334155"/>
+<circle cx="438.3" cy="280.0" r="5" fill="#334155"/>
+<circle cx="312.3" cy="280.0" r="5" fill="#334155"/>
+<circle cx="88.3" cy="280.0" r="5" fill="#334155"/>
+<circle cx="90.7" cy="424.0" r="5" fill="#334155"/>
+</svg>

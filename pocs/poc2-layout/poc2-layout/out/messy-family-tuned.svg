@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="614" height="615" font-family="system-ui,sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="10" y="68" font-size="11" fill="#94a3b8">Gen 0</text>
+<rect x="0" y="198" width="614" height="64" fill="#f1f5f9"/>
+<text x="10" y="234" font-size="11" fill="#94a3b8">Gen 1</text>
+<text x="10" y="394" font-size="11" fill="#94a3b8">Gen 2</text>
+<rect x="0" y="519" width="614" height="64" fill="#f1f5f9"/>
+<text x="10" y="555" font-size="11" fill="#94a3b8">Gen 3</text>
+<rect x="38.0" y="38.0" width="196" height="52" rx="10" fill="#fafafa" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="38.0" y="204.0" width="196" height="52" rx="10" fill="#fafafa" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 3"/>
+<rect x="40.3" y="370.0" width="196" height="52" rx="10" fill="#fafafa" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 3"/>
+<polyline points="86.0,84.0 86.0,140.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="186.0,84.0 186.0,105.0 90.7,105.0 90.7,140.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="402.0,252.0 402.0,271.0 308.7,271.0 308.7,306.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="304.0,256.0 304.0,306.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="430.0,252.0 430.0,306.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="528.0,256.0 528.0,271.0 434.7,271.0 434.7,306.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="86.0,250.0 86.0,306.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="186.0,250.0 186.0,271.0 90.7,271.0 90.7,306.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="188.3,416.0 188.3,437.0 93.0,437.0 93.0,472.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="88.3,416.0 88.3,472.0" fill="none" stroke="#cbd5e1" stroke-width="1.4"/>
+<polyline points="90.7,154.0 90.7,164.0 416.0,164.0 416.0,212.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="86.0,154.0 86.0,210.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="304.0,320.0 304.0,330.0 188.3,330.0 188.3,376.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="308.7,320.0 308.7,370.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="432.3,320.0 432.3,370.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="88.3,320.0 88.3,376.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<polyline points="90.7,486.0 90.7,531.0" fill="none" stroke="#64748b" stroke-width="1.6"/>
+<rect x="44.0" y="44.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="86.0" y="65.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Abou</text>
+<text x="86.0" y="79.0" font-size="8.5" text-anchor="middle" fill="#64748b">1930</text>
+<rect x="144.0" y="44.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="186.0" y="65.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Fati</text>
+<text x="186.0" y="79.0" font-size="8.5" text-anchor="middle" fill="#64748b">1934</text>
+<rect x="144.0" y="210.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="186.0" y="231.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Moussa</text>
+<text x="186.0" y="245.0" font-size="8.5" text-anchor="middle" fill="#64748b">1959</text>
+<rect x="44.0" y="210.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="86.0" y="231.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Nana</text>
+<text x="86.0" y="245.0" font-size="8.5" text-anchor="middle" fill="#64748b">1961</text>
+<rect x="146.3" y="376.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="188.3" y="397.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Ali</text>
+<text x="188.3" y="411.0" font-size="8.5" text-anchor="middle" fill="#64748b">1982</text>
+<rect x="46.3" y="376.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="88.3" y="397.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Sala</text>
+<text x="88.3" y="411.0" font-size="8.5" text-anchor="middle" fill="#64748b">1984</text>
+<rect x="374.0" y="212.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="416.0" y="233.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Idi</text>
+<text x="416.0" y="247.0" font-size="8.5" text-anchor="middle" fill="#64748b">1958</text>
+<rect x="262.0" y="216.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="304.0" y="237.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Rama</text>
+<text x="304.0" y="251.0" font-size="8.5" text-anchor="middle" fill="#64748b">1960</text>
+<rect x="486.0" y="216.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="528.0" y="237.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Zara</text>
+<text x="528.0" y="251.0" font-size="8.5" text-anchor="middle" fill="#64748b">1968</text>
+<rect x="266.7" y="370.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="308.7" y="391.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Hawa</text>
+<text x="308.7" y="405.0" font-size="8.5" text-anchor="middle" fill="#64748b">1985</text>
+<rect x="390.3" y="370.0" width="84" height="40" rx="7" fill="#fce7f3" stroke="#db2777" stroke-width="1.3"/>
+<text x="432.3" y="391.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Bina</text>
+<text x="432.3" y="405.0" font-size="8.5" text-anchor="middle" fill="#64748b">1990</text>
+<rect x="48.7" y="531.0" width="84" height="40" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="1.3"/>
+<text x="90.7" y="552.0" font-size="13" text-anchor="middle" dominant-baseline="middle" fill="#0f172a">Umar</text>
+<text x="90.7" y="566.0" font-size="8.5" text-anchor="middle" fill="#64748b">2008</text>
+<circle cx="88.3" cy="147.0" r="5" fill="#334155"/>
+<circle cx="306.3" cy="313.0" r="5" fill="#334155"/>
+<circle cx="432.3" cy="313.0" r="5" fill="#334155"/>
+<circle cx="88.3" cy="313.0" r="5" fill="#334155"/>
+<circle cx="90.7" cy="479.0" r="5" fill="#334155"/>
+</svg>
