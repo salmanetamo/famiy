@@ -1,0 +1,8 @@
+
+=== scale: 50,000 persons / 73,568 parent-child edges (500 samples each) ===
+query               p50      p95      p99      max     mean    ~rows
+--------------------------------------------------------------------
+ancestors         0.16m    0.41m    0.59m    1.23m    0.20m       24
+descendants       0.10m    0.41m    1.48m   11.95m    0.18m       26
+relationship      0.34m    0.64m    0.83m    1.44m    0.38m        0
+ego_network       0.11m    0.15m    0.21m    0.37m    0.11m        5
