@@ -7,7 +7,7 @@ sub-decisions deliberately gated on proofs of concept (PoC-1, PoC-2/3).
 ### Decisions at a glance
 | ADR | Area | Decision | Status |
 |-----|------|----------|--------|
-| 001 | Database | PostgreSQL as single store; recursive CTEs for traversal | Accepted (traversal mechanism gated on PoC-1) |
+| 001 | Database | PostgreSQL as single store; recursive CTEs for traversal | **Accepted — PoC-1 confirms plain CTEs** (p95 ≤ ~0.65 ms at 50k) |
 | 002 | Visualization & layout | Decoupled layout/render; layered (Sugiyama) layout via elkjs + union nodes; SVG first | Accepted (approach); rendering library gated on PoC-2/3 |
 | 003 | Backend language | Go (REST API) | Accepted |
 
@@ -36,7 +36,8 @@ For each option, record:
 **Date:** 2026-10-29
 **Status:** Accepted. PostgreSQL is the source of truth regardless of PoC
 results; the *traversal mechanism* (plain recursive CTEs vs. adding a graph
-engine) is the only sub-question still gated on PoC-1.
+engine) was the only sub-question gated on PoC-1. **PoC-1 is now complete
+(2026-10-29): plain recursive CTEs confirmed; no graph engine needed for the MVP.**
 
 **Context:**
 Person profiles are transactional, relational data (names, dates, bio, residence,
@@ -80,18 +81,35 @@ change without touching the domain or API layers.
 
 **Consequences:**
 - We own and maintain recursive CTEs: indexes on `parent_child(child_id)` and
-  `(parent_id)`; `UNION` (not `UNION ALL`) to dedup diamond paths from cousin
-  marriages; a `CYCLE` guard against accidental data-entry loops.
+  `(parent_id)`; a `CYCLE` guard against accidental data-entry loops, plus
+  `min(depth)` + `GROUP BY` to collapse the duplicate paths that diamonds (cousin
+  marriages) create. (PoC-1 uses `UNION ALL` because the queries carry a depth
+  column; plain `UNION` would not terminate once the same node appears at
+  differing depths.)
 - Relationship-path queries are more code in SQL than they would be in Cypher's
   `shortestPath`. Accepted for the MVP.
 - Learning value shifts onto recursive SQL and set-based query thinking (a
   deliberate, transferable skill) rather than a proprietary query language.
 
+**Evidence (PoC-1, 2026-10-29):**
+Benchmarked plain recursive CTEs on PostgreSQL 16 over synthetic trees at 1k /
+10k / 50k persons, including cousin-marriage diamonds (~3% of two-parent persons
+at a diamond apex at 50k; worst-case ancestor fan 66). Across all scales, p95 for
+every representative query — ancestors, descendants, the double-recursion
+relationship/LCA query, and the ego-network hot path — stayed ≤ ~1.1 ms, and at
+50k ≤ ~0.65 ms: roughly **100× under** the 50 ms trigger. Caveat: warm-cache
+local numbers; a budget VM is slower per op but the dataset fits in RAM and the
+margin absorbs it. Harness and full results live in `poc1-db-benchmark/`.
+
+**Verdict:** trigger (a) **not met** — plain recursive CTEs are confirmed for the
+MVP; Apache AGE and Neo4j are **not needed for performance**. AGE remains an
+*optional* path for the Cypher learning goal; Neo4j stays deferred.
+
 **Revisit trigger:**
-Reopen this ADR if **either** (a) PoC-1 shows p95 latency above ~50 ms at target
-scale on plain CTEs, **or** (b) relationship-path / pattern queries become the
-dominant feature. In that case evaluate **Apache AGE first** (keeps a single
-database); consider Neo4j only if AGE proves insufficient.
+Reopen this ADR if **either** (a) latency later exceeds ~50 ms p95 at real scale
+on plain CTEs (not observed in PoC-1), **or** (b) relationship-path / pattern
+queries become the dominant feature. In that case evaluate **Apache AGE first**
+(keeps a single database); consider Neo4j only if AGE proves insufficient.
 
 ---
 
