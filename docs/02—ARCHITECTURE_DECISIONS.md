@@ -8,7 +8,7 @@ sub-decisions deliberately gated on proofs of concept (PoC-1, PoC-2/3).
 | ADR | Area | Decision | Status |
 |-----|------|----------|--------|
 | 001 | Database | PostgreSQL as single store; recursive CTEs for traversal | **Accepted — PoC-1 confirms plain CTEs** (p95 ≤ ~0.65 ms at 50k) |
-| 002 | Visualization & layout | Decoupled layout/render; layered (Sugiyama) layout via elkjs + union nodes; SVG first | Accepted (approach); rendering library gated on PoC-2/3 |
+| 002 | Visualization & layout | Decoupled layout/render; elkjs `layered` + union nodes + couple containers; SVG first | **Accepted — PoC-2 validated layout; adopt elkjs (augmented)**; rendering library gated on PoC-3 |
 | 003 | Backend language | Go (REST API) | Accepted |
 
 Guiding principles for this project: keep domain data separate from visual
@@ -114,9 +114,11 @@ queries become the dominant feature. In that case evaluate **Apache AGE first**
 ---
 
 ### ADR-002: Graph visualization and layout
-**Date:** 2026-10-29
-**Status:** Accepted (approach and layout strategy). The specific rendering
-library and build-vs-adopt choice for the layout engine are gated on PoC-2/3.
+**Date:** 2026-10-29 (layout validated by PoC-2, 2026-10-30)
+**Status:** Accepted. **PoC-2 (2026-10-30) validated the layout strategy and
+resolved the adopt-vs-hand-roll sub-decision: adopt elkjs, augmented.** The
+rendering *library* (Cytoscape.js vs. React Flow) remains gated on PoC-3 / the
+build phase.
 
 **Context:**
 The core UX is an interactive, legible rendering of a generational DAG with
@@ -160,14 +162,43 @@ descend from the union of both parents, and crossing minimization is NP-hard
 - The layout service is a clean seam: the renderer can be swapped (SVG → Canvas)
   without touching domain logic.
 
+**Evidence (PoC-2, 2026-10-30):**
+Ran a deliberately messy 12-person family (a remarriage, half-siblings, and a
+cousin marriage that forms a diamond) through elkjs `layered` + union nodes, then
+rendered to SVG and measured. Findings:
+- Generations align cleanly — `NETWORK_SIMPLEX` layering pulls married-in spouses
+  onto their partner's row (naive longest-path layering would strand them).
+- Union nodes correctly place children under the midpoint of both parents, and
+  handle the remarriage (one parent in two unions) and half-siblings.
+- The **one failure** was the cousin marriage: the two partners are each anchored
+  to their own birth family on opposite sides of the rank, so their marriage edge
+  stretched ~460px. A sweep showed **soft levers (model order, edge priority) do
+  nothing** — the anchoring is structural.
+- **Fix that worked: couple containers.** Wrapping monogamous couples in an ELK
+  compound node (`hierarchyHandling: INCLUDE_CHILDREN`) forced partners adjacent:
+  max couple span 460px → 112px, crossings stayed 0, total edge length *fell*.
+  Remarried people (in two unions) can't be containerized — a node has one parent
+  in the hierarchy — so they stay at the root; their unions were already adjacent.
+
+**Resolution of the open sub-decision:** **adopt elkjs; do not hand-roll a
+Sugiyama pipeline.** elkjs does the NP-hard crossing/placement work well; our
+layout service augments it with (1) union nodes and (2) couple containers for
+monogamous couples. Harness, configs, and rendered output live in `poc2-layout/`.
+
+**Known limitation / deferred lever:** a person who is *both* remarried *and* in a
+cross-branch marriage can still produce a long edge (the container heuristic only
+covers monogamous couples). The fuller fix is **node duplication** (draw the
+person twice with a "same-as" link) — the genogram-standard technique, logged for
+a later phase; not needed for the MVP.
+
 **Revisit trigger:**
 Move SVG → Canvas/WebGL only if PoC-3 finds the SVG interaction breakpoint below
 the realistic maximum tree size.
 
-**Open sub-decisions (resolved by PoC-2/3):**
-- Adopt elkjs as-is vs. hand-roll a simplified Sugiyama pipeline (higher learning
-  value, more effort).
-- Final rendering library: Cytoscape.js vs. React Flow.
+**Open sub-decisions:**
+- ~~Adopt elkjs as-is vs. hand-roll a simplified Sugiyama pipeline~~ — **resolved
+  by PoC-2: adopt elkjs, augmented with union nodes + couple containers.**
+- Final rendering library: Cytoscape.js vs. React Flow (pending PoC-3 / build).
 
 ---
 
