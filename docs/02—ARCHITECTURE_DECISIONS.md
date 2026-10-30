@@ -8,7 +8,7 @@ sub-decisions deliberately gated on proofs of concept (PoC-1, PoC-2/3).
 | ADR | Area | Decision | Status |
 |-----|------|----------|--------|
 | 001 | Database | PostgreSQL as single store; recursive CTEs for traversal | **Accepted — PoC-1 confirms plain CTEs** (p95 ≤ ~0.65 ms at 50k) |
-| 002 | Visualization & layout | Decoupled layout/render; elkjs `layered` + union nodes + couple containers; SVG first | **Accepted — PoC-2 validated layout; adopt elkjs (augmented)**; rendering library gated on PoC-3 |
+| 002 | Visualization & layout | Decoupled layout/render; elkjs `layered` + union nodes + couple containers; SVG (PoC-2 + PoC-3) | **Accepted — layout & SVG both validated**; rendering *library* decided in build phase |
 | 003 | Backend language | Go (REST API) | Accepted |
 
 Guiding principles for this project: keep domain data separate from visual
@@ -191,14 +191,37 @@ covers monogamous couples). The fuller fix is **node duplication** (draw the
 person twice with a "same-as" link) — the genogram-standard technique, logged for
 a later phase; not needed for the MVP.
 
+**Evidence (PoC-3, 2026-10-30) — SVG rendering ceiling:**
+Benchmarked an SVG family tree in headless Chromium at 250–8000 persons
+(~1.1k–35k DOM elements), measuring initial render, pan/zoom FPS, and
+selection-restyle, for two pan/zoom techniques. Findings:
+- Smooth 60fps through ~250–500 persons; ~30fps (janky) at 1000; falls off beyond.
+- Initial render grows ~linearly with DOM count (~42ms @1000, ~96ms @2000).
+- CSS-transform pan/zoom did NOT beat viewBox *in this environment* — headless is
+  software-rendered (no GPU), so neither path gets compositing. On real hardware
+  the transform path is expected to be faster; not measurable here (stated caveat,
+  not a result). Numbers are indicative/conservative; reconfirm on a real device.
+
+**Resolution — keep SVG for the MVP.** Realistic trees (a few hundred visible
+nodes) are comfortably smooth even in this conservative test. The escalation
+ladder if a tree grows large: (1) CSS-transform pan/zoom (GPU-composited on real
+hardware), (2) viewport culling (render only the focused neighborhood — node
+count *in view* is what matters), (3) Canvas/WebGL as a last resort. Canvas is
+not needed for the MVP. Harness lives in `poc3-render-bench/`.
+
 **Revisit trigger:**
-Move SVG → Canvas/WebGL only if PoC-3 finds the SVG interaction breakpoint below
-the realistic maximum tree size.
+Move SVG → Canvas/WebGL only if a real view must paint more than ~hundreds of
+nodes simultaneously *after* culling — i.e. the ladder's steps (1) and (2) prove
+insufficient on real hardware.
 
 **Open sub-decisions:**
 - ~~Adopt elkjs as-is vs. hand-roll a simplified Sugiyama pipeline~~ — **resolved
   by PoC-2: adopt elkjs, augmented with union nodes + couple containers.**
-- Final rendering library: Cytoscape.js vs. React Flow (pending PoC-3 / build).
+- ~~SVG vs. Canvas/WebGL for the MVP~~ — **resolved by PoC-3: SVG, with a culling
+  + transform ladder before Canvas.**
+- Final rendering *library*: Cytoscape.js vs. React Flow — still open, decide in
+  the build phase (both can drive an SVG renderer; choice is about DX and the
+  built-in graph-algorithm/interaction APIs, not raw render performance).
 
 ---
 

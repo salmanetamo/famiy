@@ -3,13 +3,12 @@
 _Last updated: 2026-10-30_
 
 ## Current phase
-Phase 3 — Technical experiments and proofs of concept (in progress). PoC-1 and
-PoC-2 done.
+Phase 3 — Technical experiments and proofs of concept (**complete**). Entering
+Phase 4 — project setup and foundational infrastructure.
 
 ## Current milestone
-PoC-1 and PoC-2 **complete**. PoC-3 (SVG rendering ceiling) is next — or skip
-straight to Phase 4 (Go + Postgres scaffold), since the two expensive-to-reverse
-unknowns (query model, layout) are now settled.
+All three PoCs complete (PoC-1 database, PoC-2 layout, PoC-3 rendering). Next:
+Phase 4 — Go + Postgres project scaffold.
 
 ## Completed
 - Initial product concept documented.
@@ -29,6 +28,11 @@ unknowns (query model, layout) are now settled.
   The cousin marriage split the couple (~460px edge); soft levers did nothing;
   **couple containers** fixed it (span 460→112px, 0 crossings). Resolved ADR-002's
   adopt-vs-hand-roll question: adopt elkjs, augmented. Harness in `poc2-layout/`.
+- Phase 3 — PoC-3 (SVG rendering ceiling): benchmarked an SVG tree in headless
+  Chromium at 250–8000 persons. Smooth to ~500 persons rendered at once; ~30fps
+  at 1000. Resolved ADR-002's SVG-vs-Canvas question: **keep SVG** for the MVP,
+  with a culling + transform ladder before Canvas. Headless is software-rendered
+  (conservative; reconfirm on device). Harness in `poc3-render-bench/`.
 
 ## Decisions confirmed
 - **Scope & constraints:** small scale (hundreds–low thousands of persons per
@@ -44,15 +48,17 @@ unknowns (query model, layout) are now settled.
   the visualization layer).
 
 ## Experiments in progress
-PoC-1 and PoC-2 complete (see Completed). PoC-3 (SVG rendering ceiling) is defined
-but optional — it only gates SVG→Canvas, a reversible decision.
+None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
 
 ## Open questions
 - Traversal *mechanism* — **resolved by PoC-1: plain recursive CTEs** (no Apache
   AGE / Neo4j needed for performance; AGE optional for the Cypher learning goal).
 - Layout engine — **resolved by PoC-2: adopt elkjs, augmented** (union nodes +
   couple containers; node duplication deferred as a known lever).
-- Final rendering library (Cytoscape.js vs. React Flow) — pending PoC-3 / build.
+- Rendering tech — **resolved by PoC-3: SVG** (culling + transform ladder before
+  Canvas; reconfirm FPS on a real device).
+- Final rendering *library* (Cytoscape.js vs. React Flow) — decide in the build
+  phase (DX / graph APIs, not render performance).
 - Hosting provider (Hetzner leaning on price/performance) — confirm at deploy time.
 - Authentication approach — to be decided in Phase 4.
 
@@ -66,10 +72,10 @@ but optional — it only gates SVG→Canvas, a reversible decision.
   overhead — an accepted cost tied to the learning goal.
 
 ## Next actions
-1. Decide: run PoC-3 (SVG rendering ceiling) now, or defer it (SVG→Canvas is
-   reversible) and move to Phase 4.
-2. Phase 4 — project setup and foundational infrastructure (Go + Postgres):
-   repo layout, schema migrations, a minimal REST skeleton, local dev via
-   Docker Compose.
-3. Later: node-duplication lever for the remarried-and-cross-branch layout case
-   (ADR-002 known limitation), when real data needs it.
+1. Phase 4 — project setup and foundational infrastructure (Go + Postgres):
+   repo layout, schema migrations (from PoC-1's schema), a minimal REST skeleton,
+   local dev via Docker Compose, and CI skeleton.
+2. Build-phase decision: rendering library (Cytoscape.js vs. React Flow).
+3. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large
+   trees (PoC-3 ladder); node duplication for the remarried-and-cross-branch
+   layout case (ADR-002 known limitation) — when real data needs them.
