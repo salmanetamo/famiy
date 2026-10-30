@@ -1,0 +1,80 @@
+[
+  {
+    "persons": 250,
+    "domElements": 1084,
+    "initialRenderMs": 11.2,
+    "medianFps": 59.9,
+    "p95FrameMs": 16.7,
+    "droppedPct": 0,
+    "selectRecalcMs": 17.3,
+    "fps_viewbox": 59.9,
+    "dropped_viewbox": 0,
+    "fps_transform": 59.9,
+    "dropped_transform": 3.4
+  },
+  {
+    "persons": 500,
+    "domElements": 2168,
+    "initialRenderMs": 22.7,
+    "medianFps": 59.9,
+    "p95FrameMs": 33.4,
+    "droppedPct": 13.5,
+    "selectRecalcMs": 21.3,
+    "fps_viewbox": 59.9,
+    "dropped_viewbox": 13.5,
+    "fps_transform": 59.9,
+    "dropped_transform": 13.5
+  },
+  {
+    "persons": 1000,
+    "domElements": 4334,
+    "initialRenderMs": 41.7,
+    "medianFps": 30,
+    "p95FrameMs": 50,
+    "droppedPct": 80.9,
+    "selectRecalcMs": 10.6,
+    "fps_viewbox": 30,
+    "dropped_viewbox": 80.9,
+    "fps_transform": 30,
+    "dropped_transform": 86.5
+  },
+  {
+    "persons": 2000,
+    "domElements": 8668,
+    "initialRenderMs": 96.2,
+    "medianFps": 15,
+    "p95FrameMs": 83.4,
+    "droppedPct": 100,
+    "selectRecalcMs": 38.5,
+    "fps_viewbox": 15,
+    "dropped_viewbox": 100,
+    "fps_transform": 15,
+    "dropped_transform": 100
+  },
+  {
+    "persons": 4000,
+    "domElements": 17334,
+    "initialRenderMs": 155.7,
+    "medianFps": 7.5,
+    "p95FrameMs": 183.3,
+    "droppedPct": 100,
+    "selectRecalcMs": 52.4,
+    "fps_viewbox": 7.5,
+    "dropped_viewbox": 100,
+    "fps_transform": 8.6,
+    "dropped_transform": 100
+  },
+  {
+    "persons": 8000,
+    "domElements": 34668,
+    "initialRenderMs": 580.1,
+    "medianFps": 3.5,
+    "p95FrameMs": 366.7,
+    "droppedPct": 100,
+    "selectRecalcMs": 158.9,
+    "fps_viewbox": 3.5,
+    "dropped_viewbox": 100,
+    "fps_transform": 4,
+    "dropped_transform": 100
+  }
+]

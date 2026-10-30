@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PoC-3 SVG render bench</title>
+<style>
+  html, body { margin: 0; background: #fff; }
+  #stage { width: 100vw; height: 100vh; overflow: hidden; }
+  svg { width: 100%; height: 100%; display: block; }
+  .person { fill: #dbeafe; stroke: #2563eb; stroke-width: 1.2; }
+  .person.f { fill: #fce7f3; stroke: #db2777; }
+  .edge { fill: none; stroke: #64748b; stroke-width: 1.4; }
+  .name { font: 12px system-ui, sans-serif; fill: #0f172a; }
+  .year { font: 8px system-ui, sans-serif; fill: #64748b; }
+  /* selection highlight: a single class toggle that restyles many nodes */
+  svg.hl .person { fill: #fde68a; stroke: #d97706; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+'use strict';
+
+// --- build a family-tree-shaped SVG with N person nodes ---------------------
+// Layered: generation rows that widen then plateau, each node linked to 1-2
+// "parents" in the row above. Topology is irrelevant to render cost; DOM element
+// count and spatial spread (what actually drives SVG paint) are realistic.
+function buildSvg(N) {
+  const NW = 110, NH = 40, HGAP = 24, VGAP = 90;
+  // assign nodes to rows of growing width
+  const rows = [];
+  let placed = 0, width = 2, r = 0;
+  while (placed < N) {
+    const count = Math.min(width, N - placed);
+    rows.push(count);
+    placed += count;
+    width = Math.min(Math.ceil(width * 1.7), 180); // widen, then plateau
+    r++;
+  }
+  // coordinates
+  const pos = [];           // {x,y,row,idxInRow,sex}
+  const rowStartIndex = [];
+  let id = 0;
+  for (let ri = 0; ri < rows.length; ri++) {
+    rowStartIndex.push(id);
+    const n = rows[ri];
+    const rowW = n * NW + (n - 1) * HGAP;
+    const x0 = -rowW / 2;
+    for (let i = 0; i < n; i++) {
+      pos.push({ x: x0 + i * (NW + HGAP), y: ri * VGAP, row: ri, idx: i, sex: (id % 2) ? 'f' : 'm' });
+      id++;
+    }
+  }
+
+  const parts = [];
+  // edges first (under nodes): each non-root node links up to 1-2 parents
+  for (let ri = 1; ri < rows.length; ri++) {
+    const start = rowStartIndex[ri];
+    const prevStart = rowStartIndex[ri - 1];
+    const prevCount = rows[ri - 1];
+    for (let i = 0; i < rows[ri]; i++) {
+      const child = pos[start + i];
+      const pA = pos[prevStart + (i % prevCount)];
+      const cx = child.x + NW / 2, cy = child.y;
+      const ax = pA.x + NW / 2, ay = pA.y + NH;
+      // orthogonal-ish path
+      const my = (ay + cy) / 2;
+      parts.push(`<path class="edge" d="M${ax} ${ay} L${ax} ${my} L${cx} ${my} L${cx} ${cy}"/>`);
+      if (i % 3 === 0 && prevCount > 1) { // ~1/3 have a second parent -> extra edge density
+        const pB = pos[prevStart + ((i + 1) % prevCount)];
+        const bx = pB.x + NW / 2, by = pB.y + NH;
+        parts.push(`<path class="edge" d="M${bx} ${by} L${bx} ${my} L${cx} ${my} L${cx} ${cy}"/>`);
+      }
+    }
+  }
+  // person nodes: rect + 2 texts (matches our real renderer's density)
+  for (let k = 0; k < pos.length; k++) {
+    const p = pos[k];
+    parts.push(`<rect class="person ${p.sex}" x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="7"/>`);
+    parts.push(`<text class="name" x="${p.x + NW / 2}" y="${p.y + 20}" text-anchor="middle">Person ${k}</text>`);
+    parts.push(`<text class="year" x="${p.x + NW / 2}" y="${p.y + 33}" text-anchor="middle">19${(10 + k % 89)}</text>`);
+  }
+
+  // content bbox for viewBox animation
+  let minX = Infinity, maxX = -Infinity, maxY = 0;
+  for (const p of pos) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x + NW); maxY = Math.max(maxY, p.y + NH); }
+  const contentW = maxX - minX, contentH = maxY;
+
+  const svg =
+    `<svg id="tree" viewBox="${minX} 0 ${contentW} ${contentH}" xmlns="http://www.w3.org/2000/svg">` +
+    `<g id="vp">${parts.join('')}</g></svg>`;
+  return { svg, contentW, contentH, minX, rows: rows.length };
+}
+
+function raf() { return new Promise((res) => requestAnimationFrame((t) => res(t))); }
+
+// --- the benchmark ----------------------------------------------------------
+// mode: 'viewbox'  -> pan/zoom by animating the SVG viewBox (re-rasterizes each
+//                     frame; the expensive but simplest technique)
+//       'transform'-> pan/zoom by CSS transform on the SVG element (GPU-
+//                     composited; what a performance-minded app would do)
+async function runBench(N, mode) {
+  mode = mode || 'viewbox';
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+
+  // (1) initial render: time from innerHTML set to a forced layout flush
+  const built = buildSvg(N);
+  const t0 = performance.now();
+  stage.innerHTML = built.svg;
+  const svg = document.getElementById('tree');
+  // force synchronous layout of the whole SVG
+  void svg.getBBox();
+  await raf(); // let it paint once
+  const initialRenderMs = performance.now() - t0;
+
+  const domElements = svg.getElementsByTagName('*').length;
+
+  // (2) interaction FPS: animate pan+zoom and sample frame deltas
+  const FRAMES = 90;
+  const stamps = [];
+  const { minX, contentW, contentH } = built;
+
+  if (mode === 'transform') {
+    // size the SVG to its content and pan/zoom via a composited CSS transform
+    svg.setAttribute('viewBox', `${minX} 0 ${contentW} ${contentH}`);
+    svg.style.width = contentW + 'px';
+    svg.style.height = contentH + 'px';
+    svg.style.transformOrigin = '0 0';
+    svg.style.willChange = 'transform';
+  }
+  await raf();
+  for (let i = 0; i < FRAMES; i++) {
+    const t = i / FRAMES;
+    const zoom = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2)); // 0.6..1.0
+    if (mode === 'transform') {
+      const px = -contentW * 0.2 * (0.5 + 0.5 * Math.sin(t * Math.PI * 4));
+      const py = -contentH * 0.2 * (0.5 + 0.5 * Math.cos(t * Math.PI * 3));
+      svg.style.transform = `translate(${px}px, ${py}px) scale(${zoom})`;
+    } else {
+      const vw = contentW * zoom, vh = contentH * zoom;
+      const panX = minX + (contentW - vw) * (0.5 + 0.4 * Math.sin(t * Math.PI * 4));
+      const panY = (contentH - vh) * (0.5 + 0.4 * Math.cos(t * Math.PI * 3));
+      svg.setAttribute('viewBox', `${panX} ${panY} ${vw} ${vh}`);
+    }
+    const ts = await raf();
+    stamps.push(ts);
+  }
+  const deltas = [];
+  for (let i = 1; i < stamps.length; i++) deltas.push(stamps[i] - stamps[i - 1]);
+  deltas.sort((a, b) => a - b);
+  const median = deltas[Math.floor(deltas.length / 2)];
+  const p95 = deltas[Math.floor(deltas.length * 0.95)];
+  const medianFps = 1000 / median;
+  const droppedPct = 100 * deltas.filter((d) => d > 33).length / deltas.length; // below ~30fps
+
+  // (3) selection recalc: toggle a class that restyles every .person, time the paint
+  const s0 = performance.now();
+  svg.classList.add('hl');
+  void svg.getBBox();
+  await raf();
+  const selectRecalcMs = performance.now() - s0;
+  svg.classList.remove('hl');
+
+  return {
+    persons: N,
+    domElements,
+    initialRenderMs: +initialRenderMs.toFixed(1),
+    medianFps: +medianFps.toFixed(1),
+    p95FrameMs: +p95.toFixed(1),
+    droppedPct: +droppedPct.toFixed(1),
+    selectRecalcMs: +selectRecalcMs.toFixed(1),
+  };
+}
+
+window.runBench = runBench;
+window.__ready = true;
+</script>
+</body>
+</html>
