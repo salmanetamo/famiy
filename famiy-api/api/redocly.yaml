@@ -1,0 +1,11 @@
+# Lint config for api/openapi.yaml (see `make api-lint`).
+extends:
+  - recommended
+
+rules:
+  # No licence chosen for the project yet; revisit when one is.
+  info-license: off
+  # The only server listed is local development, deliberately.
+  no-server-example.com: off
+  # /healthz is the only operation without a meaningful 4xx response.
+  operation-4xx-response: off

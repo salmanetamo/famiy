@@ -274,3 +274,9 @@ Go for the backend, exposing a REST API.
   the deliberate language stretch, not the main source of learning.
 
 **Note:** pin to the current stable Go release at implementation time.
+
+**Implementation notes (Phase 4, 2026-11-01):** pinned Go 1.27.3. Of the two options named
+in Consequences, **raw `pgx` v5 was chosen over `sqlc`** — three queries at the start, one
+of them a hand-tuned recursive CTE, and one fewer tool to maintain. The repository boundary
+keeps a later move to sqlc contained; if the query count grows into dozens, record it as
+ADR-004. Router: `chi`; migrations: `golang-migrate`.

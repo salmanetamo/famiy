@@ -1,14 +1,32 @@
 # Project Status — Family Graph
 
-_Last updated: 2026-10-30_
+_Last updated: 2026-11-01_
 
 ## Current phase
-Phase 3 — Technical experiments and proofs of concept (**complete**). Entering
-Phase 4 — project setup and foundational infrastructure.
+Phase 4 — project setup and foundational infrastructure (**in progress**; the backend
+vertical slice is built and tested, CI/skills/docs are being finished). Phases 1–3 complete.
 
 ## Current milestone
-All three PoCs complete (PoC-1 database, PoC-2 layout, PoC-3 rendering). Next:
-Phase 4 — Go + Postgres project scaffold.
+Backend foundation in `famiy-api/`: Go + Postgres thin vertical slice (create/get person,
+ancestors via recursive CTE, `/healthz`), with migration, tests, Compose, Makefile, CI
+workflow, skills and agent. Remaining Phase 4 items are listed under Next actions.
+
+## Phase 4 state — proposed / implemented / tested / deployed
+| Item | State |
+|---|---|
+| Repo layout: `famiy-api/` (own Go module), `deploy/`, `docs/`, `pocs/`, `.claude/` | implemented |
+| Local stack: Postgres 16 in Compose (host port 5433), Makefile, `.env.example` | implemented, tested (db up, migrate, test, `make up`) |
+| Migration `000001_init` (PoC-1 schema + hardened two-parent trigger) | implemented, tested (up → down → up; constraints and trigger covered) |
+| `POST /persons`, `GET /persons/{id}`, `GET /persons/{id}/ancestors`, `GET /healthz` | implemented, tested (handler + repo integration tests on real Postgres) |
+| Domain invariants: no self-parent, ≤ 2 parents (race-safe), no duplicate edge | implemented, tested incl. concurrency test |
+| Lint/vet/build/test (local) | tested: all green |
+| `go test -race` | **not run locally** (no cgo/C compiler on the dev machine); runs in CI only |
+| GitHub Actions workflow `api-ci.yml` | written, committed; **first GitHub run not yet confirmed** |
+| `api/openapi.yaml` | written (hand-maintained, docs-only); Redocly lint (`make api-lint`) found no structural errors, only style rules, addressed via `security: []` and `api/redocly.yaml`; **re-run after those changes pending** |
+| Dockerfile / containerised run (`make up`) | implemented, tested once locally |
+| Skills (`new-migration`, `new-endpoint`, `run-checks`) and agent (`go-reviewer`) | written, committed; **not yet exercised** |
+| Authentication, partnership API, update/delete/search, frontend | not started |
+| Anything deployed to a server | **nothing deployed** |
 
 ## Completed
 - Initial product concept documented.
@@ -34,6 +52,11 @@ Phase 4 — Go + Postgres project scaffold.
   with a culling + transform ladder before Canvas. Headless is software-rendered
   (conservative; reconfirm on device). Harness in `poc3-render-bench/`.
 
+- Phase 4 — backend foundation: see "Phase 4 state" above. Notable findings from the
+  tests: PoC-1's two-parent trigger had a concurrency race (fixed with a row lock) and
+  shadowed the duplicate-edge error (fixed); both are covered by tests that fail without
+  the fix. Details in `DATA_MODEL.md`; module layout in `04—ARCHITECTURE_OVERVIEW.md`.
+
 ## Decisions confirmed
 - **Scope & constraints:** small scale (hundreds–low thousands of persons per
   tree; tens of thousands at most); single-owner trees for MVP, collaboration
@@ -43,7 +66,14 @@ Phase 4 — Go + Postgres project scaffold.
   CTEs for traversal; siblings and genealogical distance derived, not stored.
 - **Visualization & layout (ADR-002):** decoupled layout/render; elkjs `layered`
   + virtual union nodes + couple containers (validated by PoC-2); SVG for the MVP.
-- **Backend (ADR-003):** Go, exposing a REST API.
+- **Backend (ADR-003):** Go, exposing a REST API. Phase 4 pins: Go 1.27.3, pgx v5.11.0,
+  chi v5.5.0, golang-migrate v4.20.1, golangci-lint v2.15.0 (versions checked 2026-10-30).
+- **Data access (Phase 4):** raw pgx behind repository interfaces, not sqlc. Revisit (with
+  an ADR-004) if the query count grows into dozens.
+- **Repo shape (Phase 4):** monorepo with `famiy-api/` (Go module
+  `github.com/salmanetamo/famiy/famiy-api`) and, later, a sibling `famiy-app/`.
+- **Integration tests (Phase 4):** real Postgres via `TEST_DATABASE_URL` and a throwaway
+  database per test, not testcontainers (no extra dependency; CI uses a service container).
 - **Frontend:** React + TypeScript (familiar framework; novelty concentrated in
   the visualization layer).
 
@@ -60,7 +90,9 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
 - Final rendering *library* (Cytoscape.js vs. React Flow) — decide in the build
   phase (DX / graph APIs, not render performance).
 - Hosting provider (Hetzner leaning on price/performance) — confirm at deploy time.
-- Authentication approach — to be decided in Phase 4.
+- Authentication approach — **still open; to be decided in Phase 4.** It also shapes the
+  ownership model (no owner/tree column exists yet), so decide it before the next schema work.
+- Write-time acyclicity check for parent links — needed before any endpoint creates edges.
 
 ## Known issues and risks
 - Layout crossing-minimization is NP-hard; the MVP uses heuristics and accepts
@@ -72,10 +104,12 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
   overhead — an accepted cost tied to the learning goal.
 
 ## Next actions
-1. Phase 4 — project setup and foundational infrastructure (Go + Postgres):
-   repo layout, schema migrations (from PoC-1's schema), a minimal REST skeleton,
-   local dev via Docker Compose, and CI skeleton.
-2. Build-phase decision: rendering library (Cytoscape.js vs. React Flow).
-3. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large
+1. Finish Phase 4: confirm the first green GitHub Actions run; run the new skills/agent
+   once; decide authentication (recommendation to be presented); close out the phase.
+2. Next slice candidates: write-time acyclicity check + a parent-link endpoint, partnership
+   API, person update/delete/search, remaining PoC-1 traversals (descendants, siblings,
+   relationship path).
+3. Build-phase decision: rendering library (Cytoscape.js vs. React Flow).
+4. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large
    trees (PoC-3 ladder); node duplication for the remarried-and-cross-branch
    layout case (ADR-002 known limitation) — when real data needs them.

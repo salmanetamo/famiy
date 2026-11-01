@@ -4,7 +4,7 @@ export
 
 COMPOSE := docker compose -f ../deploy/docker-compose.yml --env-file .env
 
-.PHONY: dev db-up db-down up down build test vet lint fmt check migrate-up migrate-down migrate-new
+.PHONY: dev db-up db-down up down build test vet lint api-lint fmt check migrate-up migrate-down migrate-new
 
 dev: db-up migrate-up ## run API on host against the dockerised db
 	go run ./cmd/server
@@ -32,6 +32,9 @@ vet:
 
 lint:
 	golangci-lint run
+
+api-lint: ## validate api/openapi.yaml (needs Node; version pinned for reproducibility)
+	npx --yes @redocly/cli@2.72.1 lint --config api/redocly.yaml api/openapi.yaml
 
 fmt:
 	gofmt -w .
