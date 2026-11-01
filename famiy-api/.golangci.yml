@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  # Defaults (errcheck, govet, ineffassign, staticcheck, unused) stay on.
+  enable:
+    - errorlint   # errors.Is/As instead of == and type assertions on wrapped errors
+    - misspell
+    - bodyclose
+
+formatters:
+  enable:
+    - gofmt
