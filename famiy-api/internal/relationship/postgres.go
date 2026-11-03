@@ -40,10 +40,15 @@ func (r *PgRepository) AddParentLink(ctx context.Context, l ParentLink) error {
 		case pgUniqueViolation:
 			return ErrDuplicateParent
 		case pgCheckViolation:
-			if pgErr.ConstraintName == "no_self_parent" {
+			// Match on the constraint name the migrations set, never on message text.
+			switch pgErr.ConstraintName {
+			case "no_self_parent":
 				return ErrSelfParent
+			case "max_two_parents":
+				return ErrTooManyParents
+			case "no_cycle":
+				return ErrCycle
 			}
-			return ErrTooManyParents
 		}
 	}
 	return fmt.Errorf("insert parent_child: %w", err)
@@ -67,6 +72,10 @@ FROM   anc
 GROUP  BY id
 ORDER  BY generations, id`
 
+// Ancestors returns every ancestor of personID. The result is not paginated and
+// the recursion has no depth cap: at this app's scale (a person has at most a
+// few hundred ancestors) that is deliberate, and the CYCLE clause plus the
+// acyclicity trigger keep the recursion finite.
 func (r *PgRepository) Ancestors(ctx context.Context, personID int64) ([]Ancestor, error) {
 	rows, err := r.pool.Query(ctx, ancestorsSQL, personID)
 	if err != nil {

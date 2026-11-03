@@ -5,7 +5,8 @@ info:
   description: >
     Phase 4 vertical slice. Hand-maintained and documentation-only (no codegen);
     the integration tests in internal/app are the executable contract.
-    No authentication yet (undecided, see docs/03).
+    No authentication yet (decision recorded in docs; not implemented).
+    Every response carries an X-Request-Id header; quote it when reporting a problem.
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -60,13 +61,22 @@ paths:
               schema: { $ref: "#/components/schemas/Person" }
         "400":
           description: >
-            Malformed JSON or unknown field (invalid_json), or a rule violated
-            (validation_failed).
+            Malformed JSON, an unknown field, a wrongly typed field or trailing data
+            after the JSON value (invalid_json), or a rule violated (validation_failed):
+            blank or over-long name, dates outside 1000-01-01 .. today, death before
+            birth, birth_approx without birth_date.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 error: { code: validation_failed, message: given_name is required }
+        "413":
+          description: Request body larger than 1 MiB (request_too_large)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: request_too_large, message: "request body exceeds 1048576 bytes" }
 
   /persons/{id}:
     get:
@@ -148,9 +158,9 @@ components:
       additionalProperties: false
       required: [given_name]
       properties:
-        given_name: { type: string, description: Required; surrounding whitespace is trimmed }
-        family_name: { type: [string, "null"] }
-        birth_date: { type: [string, "null"], format: date }
+        given_name: { type: string, maxLength: 200, description: Required; surrounding whitespace is trimmed }
+        family_name: { type: [string, "null"], maxLength: 200 }
+        birth_date: { type: [string, "null"], format: date, description: "Between 1000-01-01 and today" }
         birth_approx:
           type: boolean
           default: false

@@ -201,6 +201,90 @@ func TestTwoParentLimitHoldsUnderConcurrency(t *testing.T) {
 	}
 }
 
+func TestAddParentLinkRejectsCycles(t *testing.T) {
+	f := newFixture(t)
+	a, b, c, d := f.person(t, "a"), f.person(t, "b"), f.person(t, "c"), f.person(t, "d")
+	f.link(t, a, b) // a is b's parent
+	f.link(t, b, c) // b is c's parent
+	f.link(t, c, d) // c is d's parent
+
+	tests := []struct {
+		name string
+		link relationship.ParentLink
+		want error
+	}{
+		{"direct reversal", relationship.ParentLink{ParentID: b, ChildID: a}, relationship.ErrCycle},
+		{"two-step loop", relationship.ParentLink{ParentID: c, ChildID: a}, relationship.ErrCycle},
+		{"three-step loop", relationship.ParentLink{ParentID: d, ChildID: a}, relationship.ErrCycle},
+		{"valid shortcut across generations is not a cycle", relationship.ParentLink{ParentID: a, ChildID: d}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := f.svc.AddParentLink(context.Background(), tc.link)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// A->B and B->A inserted simultaneously lock different child rows, so only the
+// advisory lock in enforce_acyclic stops both from committing. Many pairs are
+// raced at once because a single pair only fails sometimes without the lock.
+func TestOpposingLinksCannotBothCommit(t *testing.T) {
+	f := newFixture(t)
+	const pairs = 25
+	type pair struct{ x, y int64 }
+	ps := make([]pair, pairs)
+	for i := range ps {
+		ps[i] = pair{f.person(t, fmt.Sprintf("x%d", i)), f.person(t, fmt.Sprintf("y%d", i))}
+	}
+
+	var wg sync.WaitGroup
+	forward := make([]error, pairs)
+	backward := make([]error, pairs)
+	start := make(chan struct{})
+	for i, p := range ps {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			forward[i] = f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: p.x, ChildID: p.y})
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			backward[i] = f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: p.y, ChildID: p.x})
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for i, p := range ps {
+		okF, okB := forward[i] == nil, backward[i] == nil
+		if okF == okB {
+			t.Errorf("pair %d: forward ok=%v (%v), backward ok=%v (%v); exactly one must succeed", i, okF, forward[i], okB, backward[i])
+			continue
+		}
+		loser := forward[i]
+		if okF {
+			loser = backward[i]
+		}
+		if !errors.Is(loser, relationship.ErrCycle) {
+			t.Errorf("pair %d: losing insert returned %v, want ErrCycle", i, loser)
+		}
+		var n int
+		if err := f.pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM parent_child WHERE (parent_id=$1 AND child_id=$2) OR (parent_id=$2 AND child_id=$1)`,
+			p.x, p.y).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("pair %d: %d edges stored, want exactly 1", i, n)
+		}
+	}
+}
+
 func assertAncestors(t *testing.T, got, want []relationship.Ancestor) {
 	t.Helper()
 	if len(got) != len(want) {

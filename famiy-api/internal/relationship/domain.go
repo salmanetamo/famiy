@@ -9,6 +9,7 @@ var (
 	ErrSelfParent      = apperr.Invalid("self_parent", "a person cannot be their own parent")
 	ErrTooManyParents  = apperr.Conflict("too_many_parents", "a person can have at most two parents")
 	ErrDuplicateParent = apperr.Conflict("duplicate_parent", "this parent link already exists")
+	ErrCycle           = apperr.Conflict("would_create_cycle", "this parent link would make a person their own ancestor")
 	ErrPersonMissing   = apperr.NotFound("person_not_found", "person not found")
 )
 
@@ -19,8 +20,8 @@ type ParentLink struct {
 }
 
 // Validate enforces the invariants that need no database. The database
-// enforces them again (CHECK, PRIMARY KEY, trigger), and also the two-parent
-// limit, which needs a row count.
+// enforces them again (CHECK, PRIMARY KEY, triggers), and alone enforces the
+// ones that need other rows: the two-parent limit and acyclicity (ErrCycle).
 func (l ParentLink) Validate() error {
 	if l.ParentID == l.ChildID {
 		return ErrSelfParent
