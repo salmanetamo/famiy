@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in famiy-api/.env}
       POSTGRES_DB: ${POSTGRES_DB:?set in famiy-api/.env}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +19,24 @@ services:
       timeout: 3s
       retries: 10
 
+  # One-shot: applies pending migrations, then exits. The api waits for it to
+  # finish successfully, so `make up` never serves requests on an unmigrated schema.
+  migrate:
+    profiles: ["app"]
+    image: migrate/migrate:v4.20.1
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
+      - "up"
+    volumes:
+      - ../famiy-api/migrations:/migrations:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
   # Full containerised run (`make up`). Day-to-day dev uses `make dev`, which runs
   # the API on the host against the db service above.
+  # No healthcheck: the distroless image has no shell or curl. Use GET /healthz.
   api:
     profiles: ["app"]
     build:
@@ -32,6 +48,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
 

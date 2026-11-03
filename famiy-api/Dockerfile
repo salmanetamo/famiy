@@ -1,4 +1,5 @@
-# Build context: famiy-api/. Draft, not yet built.
+# Build context: famiy-api/. Migrations are not baked into the image; the
+# compose `migrate` service (and, at deploy time, a migrate step) applies them.
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum* ./
@@ -8,7 +9,6 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/serve
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/server /server
-COPY --from=build /src/migrations /migrations
 USER nonroot
 EXPOSE 8080
 ENTRYPOINT ["/server"]
