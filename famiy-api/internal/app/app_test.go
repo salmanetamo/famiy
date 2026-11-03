@@ -52,6 +52,14 @@ func TestHealthzReportsDatabaseDown(t *testing.T) {
 	}
 }
 
+func TestResponsesCarryRequestID(t *testing.T) {
+	h, _ := app.NewRouter(testdb.New(t))
+	rec := do(t, h, http.MethodGet, "/persons/4242", "") // an error response
+	if rec.Header().Get("X-Request-Id") == "" {
+		t.Fatal("X-Request-Id header missing")
+	}
+}
+
 func TestCreateAndGetPerson(t *testing.T) {
 	h, _ := app.NewRouter(testdb.New(t))
 
@@ -98,6 +106,12 @@ func TestPersonErrors(t *testing.T) {
 		{"missing person", "GET", "/persons/4242", "", 404, "person_not_found"},
 		{"ancestors of missing person", "GET", "/persons/4242/ancestors", "", 404, "person_not_found"},
 		{"ancestors bad id", "GET", "/persons/x/ancestors", "", 400, "invalid_id"},
+		{"trailing data", "POST", "/persons", `{"given_name":"A"} junk`, 400, "invalid_json"},
+		{"wrong field type", "POST", "/persons", `{"given_name":5}`, 400, "invalid_json"},
+		{"birth in the future", "POST", "/persons", `{"given_name":"A","birth_date":"2999-01-01"}`, 400, "validation_failed"},
+		{"year zero", "POST", "/persons", `{"given_name":"A","birth_date":"0000-01-01"}`, 400, "validation_failed"},
+		{"name too long", "POST", "/persons", `{"given_name":"` + strings.Repeat("x", 201) + `"}`, 400, "validation_failed"},
+		{"oversized body", "POST", "/persons", `{"given_name":"` + strings.Repeat("x", 2<<20) + `"}`, 413, "request_too_large"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

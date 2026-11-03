@@ -3,6 +3,7 @@ package person
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Repository is the persistence boundary for persons. Implementations must
@@ -14,14 +15,15 @@ type Repository interface {
 
 type Service struct {
 	repo Repository
+	now  func() time.Time
 }
 
 func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, now: time.Now}
 }
 
 func (s *Service) Create(ctx context.Context, in Input) (Person, error) {
-	p, err := New(in)
+	p, err := New(in, s.now())
 	if err != nil {
 		return Person{}, err
 	}

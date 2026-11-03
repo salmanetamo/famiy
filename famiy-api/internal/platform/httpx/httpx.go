@@ -5,9 +5,12 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -51,19 +54,47 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusNotFound
 	case apperr.KindConflict:
 		status = http.StatusConflict
+	case apperr.KindTooLarge:
+		status = http.StatusRequestEntityTooLarge
 	}
 	JSON(w, r, status, errorBody{errorDetail{ae.Code, ae.Message}})
 }
 
-// Decode reads a JSON request body into dst, rejecting unknown fields and
-// oversized bodies.
+// Decode reads exactly one JSON value from the request body into dst,
+// rejecting unknown fields, trailing data and oversized bodies.
 func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
-		return apperr.Invalid("invalid_json", "request body is not valid JSON for this endpoint: "+err.Error())
+		return decodeError(err)
+	}
+	// Anything after the first value (other than whitespace) is an error.
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return decodeError(err)
+		}
+		return apperr.Invalid("invalid_json", "request body must contain a single JSON value")
 	}
 	return nil
+}
+
+// decodeError turns a decoder failure into a client-safe apperr. Raw decoder
+// text is not echoed, because it can expose Go type and field names.
+func decodeError(err error) error {
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		return apperr.TooLarge("request_too_large", fmt.Sprintf("request body exceeds %d bytes", tooBig.Limit))
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Field != "" {
+		return apperr.Invalid("invalid_json", fmt.Sprintf("field %q has the wrong type", typeErr.Field))
+	}
+	// Unknown-field errors are useful to the client and contain only their own input.
+	if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		return apperr.Invalid("invalid_json", "unknown field "+field)
+	}
+	return apperr.Invalid("invalid_json", "request body is not valid JSON")
 }
 
 // PathID parses the {id} URL parameter as a positive int64.

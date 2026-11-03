@@ -4,11 +4,22 @@
 package person
 
 import (
+	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/apperr"
 )
+
+// Limits. The database repeats them as CHECK constraints (migration 000002).
+const (
+	MaxNameLen = 200 // characters, per name field
+)
+
+// MinDate is the earliest date accepted for births and deaths. It keeps input
+// inside what both time.Time and PostgreSQL DATE represent sensibly.
+var MinDate = time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 var ErrNotFound = apperr.NotFound("person_not_found", "person not found")
 
@@ -33,20 +44,31 @@ type Input struct {
 }
 
 // New validates in and returns a Person ready to persist (ID and CreatedAt are
-// assigned by the repository).
-func New(in Input) (Person, error) {
+// assigned by the repository). now is the caller's clock, used to reject dates
+// in the future; one day of slack covers clients ahead of UTC.
+func New(in Input, now time.Time) (Person, error) {
 	var problems []string
 
 	given := strings.TrimSpace(in.GivenName)
-	if given == "" {
+	switch {
+	case given == "":
 		problems = append(problems, "given_name is required")
+	case utf8.RuneCountInString(given) > MaxNameLen:
+		problems = append(problems, fmt.Sprintf("given_name must be at most %d characters", MaxNameLen))
 	}
 	var family *string
 	if in.FamilyName != nil {
 		if f := strings.TrimSpace(*in.FamilyName); f != "" {
+			if utf8.RuneCountInString(f) > MaxNameLen {
+				problems = append(problems, fmt.Sprintf("family_name must be at most %d characters", MaxNameLen))
+			}
 			family = &f
 		}
 	}
+
+	latest := now.UTC().AddDate(0, 0, 1)
+	problems = append(problems, checkDate("birth_date", in.BirthDate, latest)...)
+	problems = append(problems, checkDate("death_date", in.DeathDate, latest)...)
 	if in.BirthDate != nil && in.DeathDate != nil && in.DeathDate.Before(*in.BirthDate) {
 		problems = append(problems, "death_date must not be before birth_date")
 	}
@@ -64,4 +86,17 @@ func New(in Input) (Person, error) {
 		BirthApprox: in.BirthApprox,
 		DeathDate:   in.DeathDate,
 	}, nil
+}
+
+func checkDate(field string, d *time.Time, latest time.Time) []string {
+	if d == nil {
+		return nil
+	}
+	if d.Before(MinDate) {
+		return []string{fmt.Sprintf("%s must be on or after %s", field, MinDate.Format("2006-01-02"))}
+	}
+	if d.After(latest) {
+		return []string{field + " must not be in the future"}
+	}
+	return nil
 }
