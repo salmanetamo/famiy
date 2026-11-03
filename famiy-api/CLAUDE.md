@@ -5,7 +5,7 @@ Module: `github.com/salmanetamo/famiy/famiy-api`. Run all commands from this fol
 ## Layout
 - `cmd/server/`            entrypoint; wiring only.
 - `internal/person/`       domain, service, repository interface, http handlers, pgx impl.
-- `internal/relationship/` parent-child and partnership; traversal queries (ancestors CTE).
+- `internal/relationship/` parent-child links and the ancestors CTE (partnership: schema only, code planned).
 - `internal/platform/`     apperr, config, db pool, httpx (JSON/errors/middleware), testdb.
 - `internal/app/`          composition root: wires modules into the router; `/healthz`.
 - `migrations/`            golang-migrate up/down SQL pairs.
@@ -38,5 +38,8 @@ count grows into dozens, which would then warrant an ADR). Router is chi; config
 
 ## Database and migrations
 - Schema changes only via new migration files (`NNNNNN_name.up.sql` / `.down.sql`); never edit an applied one.
-- Invariants (two-parent limit, canonical partnership order) are enforced in the DB as well as in the domain.
+- Invariants (two-parent limit, no cycles, canonical partnership order) are enforced in the DB as well as in the domain.
+- Parent-link rules live in ONE insert trigger that takes an advisory lock before any row lock (taking
+  row locks first deadlocks under concurrent opposing inserts). Keep that order if you touch it.
+- `parent_child` is insert/delete only; never UPDATE it (the trigger does not fire on update).
 - Parent→child is the atomic edge; siblings and distance are derived, never stored.

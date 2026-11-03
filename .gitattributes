@@ -1,0 +1,11 @@
+# Normalise line endings so tools behave the same on Windows (core.autocrlf)
+# and Linux CI. gofmt rejects CRLF Go files; make and sh choke on CRLF.
+* text=auto
+*.go        text eol=lf
+*.sql       text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.sh        text eol=lf
+Makefile    text eol=lf
+Dockerfile  text eol=lf
+.dockerignore text eol=lf

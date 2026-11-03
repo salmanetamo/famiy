@@ -16,15 +16,18 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
 |---|---|
 | Repo layout: `famiy-api/` (own Go module), `deploy/`, `docs/`, `pocs/`, `.claude/` | implemented |
 | Local stack: Postgres 16 in Compose (host port 5433), Makefile, `.env.example` | implemented, tested (db up, migrate, test, `make up`) |
-| Migration `000001_init` (PoC-1 schema + hardened two-parent trigger) | implemented, tested (up → down → up; constraints and trigger covered) |
+| Migrations `000001_init` (PoC-1 schema) and `000002_integrity_hardening` (name/date CHECKs, single parent-link trigger with acyclicity) | implemented, tested (up → down → up; constraints and trigger covered; applied to a fresh database via `make up`) |
 | `POST /persons`, `GET /persons/{id}`, `GET /persons/{id}/ancestors`, `GET /healthz` | implemented, tested (handler + repo integration tests on real Postgres) |
-| Domain invariants: no self-parent, ≤ 2 parents (race-safe), no duplicate edge | implemented, tested incl. concurrency test |
+| Domain invariants: no self-parent, ≤ 2 parents, no duplicate edge, **no cycles** (all race-safe) | implemented, tested incl. two concurrency tests that fail without the lock (3/3) and pass with it (3/3). No HTTP endpoint creates parent links yet. |
+| Phase 4 review (`go-reviewer`) findings: cycles, trigger UPDATE hole, unmigrated `make up`, 413/trailing-data/error-text handling, panic double-write, request-id header, name/date bounds, `.dockerignore`, port default | implemented, tested (see below); the reviewer read code only and ran nothing |
 | Lint/vet/build/test (local) | tested: all green |
 | `go test -race` | **not run locally** (no cgo/C compiler on the dev machine); runs in CI only |
-| GitHub Actions workflow `api-ci.yml` | written, committed; **first GitHub run not yet confirmed** |
-| `api/openapi.yaml` | written (hand-maintained, docs-only); Redocly lint (`make api-lint`) found no structural errors, only style rules, addressed via `security: []` and `api/redocly.yaml`; **re-run after those changes pending** |
-| Dockerfile / containerised run (`make up`) | implemented, tested once locally |
-| Skills (`new-migration`, `new-endpoint`, `run-checks`) and agent (`go-reviewer`) | written, committed; **not yet exercised** |
+| GitHub Actions workflow `api-ci.yml` | implemented, tested: green run on GitHub Actions (incl. `go test -race`), confirmed by the owner 2026-11-01 |
+| `api/openapi.yaml` | written (hand-maintained, docs-only); tested: `make api-lint` (Redocly 2.72.1) passes, confirmed by the owner 2026-11-01 (`security: []` and `api/redocly.yaml` address its style rules) |
+| Dockerfile / containerised run (`make up`: db → one-shot `migrate` → api) | implemented, tested locally on an existing and on a fresh database; CI now also builds the image (**first CI run of that step pending**) |
+| Skills `run-checks` and agent `go-reviewer` | exercised once each (both worked) |
+| Skills `new-migration`, `new-endpoint` | written, committed; **not yet exercised** (`000002` was done by hand before the skill's checklist was re-read) |
+| Line endings: `.gitattributes` pins LF for Go/SQL/YAML/Makefile/Dockerfile | implemented; fixes `gofmt -l` flagging every file on Windows with `core.autocrlf=true` |
 | Authentication, partnership API, update/delete/search, frontend | not started |
 | Anything deployed to a server | **nothing deployed** |
 
@@ -90,9 +93,13 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
 - Final rendering *library* (Cytoscape.js vs. React Flow) — decide in the build
   phase (DX / graph APIs, not render performance).
 - Hosting provider (Hetzner leaning on price/performance) — confirm at deploy time.
-- Authentication approach — **still open; to be decided in Phase 4.** It also shapes the
-  ownership model (no owner/tree column exists yet), so decide it before the next schema work.
-- Write-time acyclicity check for parent links — needed before any endpoint creates edges.
+- Authentication approach — **direction chosen 2026-11-02, ADR-004 not yet written:**
+  server-side sessions (HttpOnly cookie, sessions in Postgres) with email + argon2id
+  password, in a separate `internal/identity` module; registration **open for now**;
+  tree-scoped routes (`/trees/{id}/…`) **deferred** (no `tree` / `tree_member` tables yet).
+  Still to settle in the ADR: how an owner/user relates to persons without a tree table,
+  and the abuse risk of open registration on an internet-facing instance.
+- ~~Write-time acyclicity check for parent links~~ — **resolved** by `000002`.
 
 ## Known issues and risks
 - Layout crossing-minimization is NP-hard; the MVP uses heuristics and accepts
@@ -106,7 +113,7 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
 ## Next actions
 1. Finish Phase 4: confirm the first green GitHub Actions run; run the new skills/agent
    once; decide authentication (recommendation to be presented); close out the phase.
-2. Next slice candidates: write-time acyclicity check + a parent-link endpoint, partnership
+2. Next slice candidates: a parent-link endpoint (checks already enforced), partnership
    API, person update/delete/search, remaining PoC-1 traversals (descendants, siblings,
    relationship path).
 3. Build-phase decision: rendering library (Cytoscape.js vs. React Flow).

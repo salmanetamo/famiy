@@ -1,7 +1,7 @@
 # Data Model — Family Graph
 
-_Last updated: 2026-11-01. Source of truth: `famiy-api/migrations/`. This page explains it;
-if they disagree, the migrations win. Schema version: `000001_init`._
+_Last updated: 2026-11-02. Source of truth: `famiy-api/migrations/`. This page explains it;
+if they disagree, the migrations win. Schema version: `000002_integrity_hardening`._
 
 ## Principles (ADR-001)
 - Kinship is a **DAG**, not a tree: a person has up to two parents.
@@ -14,11 +14,11 @@ if they disagree, the migrations win. Schema version: `000001_init`._
 | Column | Type | Notes |
 |---|---|---|
 | `id` | bigint identity, PK | |
-| `given_name` | text, not null | not blank (CHECK) |
-| `family_name` | text, null | |
-| `birth_date` | date, null | |
+| `given_name` | text, not null | not blank, ≤ 200 characters (CHECK) |
+| `family_name` | text, null | ≤ 200 characters (CHECK) |
+| `birth_date` | date, null | ≥ 1000-01-01 (CHECK); the domain also rejects future dates |
 | `birth_approx` | boolean, not null, default false | models "approximate date"; the domain additionally requires `birth_date` when true |
-| `death_date` | date, null | not before `birth_date` (CHECK) |
+| `death_date` | date, null | ≥ 1000-01-01 and not before `birth_date` (CHECK); the domain also rejects future dates |
 | `created_at` | timestamptz, not null, default now() | |
 
 Not modelled yet: photo, bio, residence, owner/tree, sex. Each arrives as its own migration.
@@ -39,21 +39,34 @@ Schema exists; **no API yet**.
 | No self-parent | `CHECK (parent_id <> child_id)` | `ParentLink.Validate` → `self_parent` |
 | No duplicate edge | PK `(parent_id, child_id)` | → `duplicate_parent` (409) |
 | Both ends exist | FKs | → `person_not_found` |
-| **At most two parents per child** | `BEFORE INSERT` trigger `trg_max_two_parents` | → `too_many_parents` (409) |
+| **At most two parents per child** | `BEFORE INSERT` trigger `trg_parent_link_rules` (constraint name `max_two_parents`) | → `too_many_parents` (409) |
+| **Acyclic** (nobody is their own ancestor) | same trigger (constraint name `no_cycle`) | → `would_create_cycle` (409) |
 | Partnership stored once, canonically | `CHECK (partner_a < partner_b)` + PK | planned |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |
-| Given name not blank | `CHECK` | `person.New` → `validation_failed` |
-| **Acyclic** (nobody is their own ancestor) | **not enforced** | **planned**, relationship domain layer |
+| Given name not blank / names ≤ 200 chars / dates ≥ 1000-01-01 | `CHECK` | `person.New` → `validation_failed` |
 
-### The two-parent trigger
-A CHECK cannot count rows, so a trigger does. Two details differ from PoC-1:
-1. It first **locks the child's `person` row (`FOR UPDATE`)**. Without the lock, concurrent
-   inserts for one child each see "one parent" and both commit. This is covered by a
-   concurrency test that fails without the lock and passes with it.
-2. It **steps aside for an exact duplicate edge**, so the primary key reports "already
-   exists" instead of the misleading "too many parents".
+### The parent-link trigger (`enforce_parent_link_rules`)
+A CHECK cannot count rows or walk a graph, so one `BEFORE INSERT` trigger enforces the two
+rules that depend on other rows. Differences from PoC-1's version, all covered by tests:
+1. **It serializes link inserts with a transaction-scoped advisory lock.** Without it,
+   concurrent inserts each pass the check and together break the rule. A per-child row lock
+   is not enough: `A→B` and `B→A` lock *different* children, so both would see no cycle.
+2. **The advisory lock is taken before any row lock.** An earlier draft took a per-child
+   `FOR UPDATE` first; opposing inserts then **deadlocked** (each held a person row the other
+   needed for its foreign-key check while waiting on the advisory lock). Keep this order.
+3. **It steps aside for an exact duplicate edge and for a self-link**, so the primary key and
+   the `no_self_parent` CHECK report "already exists" / "self parent" instead of a misleading
+   "too many parents".
+4. **Each rule raises with a `CONSTRAINT` name** (`max_two_parents`, `no_cycle`), and the
+   application maps on that name, never on message text.
 
-It fires on INSERT only; edges are inserted or deleted, never updated.
+The concurrency tests (two-parent limit across 15 children; 25 opposing `A→B`/`B→A` pairs)
+fail 3 runs out of 3 with the advisory lock removed and pass 3 out of 3 with it.
+
+Caveats: the check relies on READ COMMITTED (the default), so do not insert links under
+REPEATABLE READ. Writes to `parent_child` are globally serialized, which is fine for a
+write-light app; if links become per-tree, key the lock by tree. The trigger fires on INSERT
+only: edges are inserted or deleted, never updated (a table comment says so).
 
 ## Derived data (not stored)
 - **Ancestors** — implemented: recursive CTE (`relationship/postgres.go`) with a `CYCLE`
@@ -63,7 +76,7 @@ It fires on INSERT only; edges are inserted or deleted, never updated.
   (`pocs/poc1-db-benchmark/sql/queries/`), **not yet implemented** in the API.
 
 ## Known gaps
-- **Acyclicity** is guarded only defensively (the CTE's `CYCLE` clause stops runaway loops).
-  A write-time check is needed before an endpoint can create parent links.
+- Acyclicity is enforced on insert. Deleting an edge cannot create a cycle, so no check is
+  needed there; the CTE keeps its `CYCLE` clause as defence in depth.
 - No ownership/tenant column: single-owner trees depend on the pending authentication decision.
 - Privacy of living relatives' data is an open product question (`01—PRODUCT_REQUIREMENTS.md`).
