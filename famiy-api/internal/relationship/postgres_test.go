@@ -326,6 +326,23 @@ func TestLinksCannotCrossOwners(t *testing.T) {
 			t.Fatal("cross-owner partnership was accepted")
 		}
 	})
+	t.Run("a partnership cannot be re-pointed at another account's person by UPDATE", func(t *testing.T) {
+		x, y := f.person(t, "px"), f.person(t, "py")
+		x, y = min(x, y), max(x, y)
+		if _, err := f.pool.Exec(ctx, `INSERT INTO partnership (partner_a, partner_b) VALUES ($1, $2)`, x, y); err != nil {
+			t.Fatal(err)
+		}
+		// Choose the new partner so the canonical-order CHECK (a < b) holds and
+		// only the owner rule can reject the change: a foreign person with a
+		// larger id than x, created now.
+		foreign, err := f.persons.Create(ctx, bob, person.Input{GivenName: "foreign"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.pool.Exec(ctx, `UPDATE partnership SET partner_b = $1 WHERE partner_a = $2`, foreign.ID, x); err == nil {
+			t.Fatal("UPDATE moved a partnership onto another account's person")
+		}
+	})
 	t.Run("same-owner partnerships still work", func(t *testing.T) {
 		second := f.person(t, "second")
 		a, b := min(mine, second), max(mine, second)

@@ -63,7 +63,7 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) (http.Handler, Services, error) {
 	r := chi.NewRouter()
 	// Order: request id first so every log line and response has one; the logger
 	// wraps the recoverer so recovered panics are logged as 500s.
-	r.Use(middleware.RequestID, httpx.RequestLogger, httpx.Recoverer,
+	r.Use(middleware.RequestID, httpx.RequestLogger, httpx.Recoverer, httpx.SecurityHeaders,
 		httpx.OriginCheck(cfg.AllowedOrigins...), httpx.RequireJSON)
 
 	r.Get("/healthz", healthz(pool))

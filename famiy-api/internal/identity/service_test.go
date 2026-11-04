@@ -17,7 +17,10 @@ import (
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/testdb"
 )
 
-const goodPassword = "correct horse battery staple"
+const (
+	goodPassword = "correct horse battery staple"
+	testAddr     = "10.0.0.1"
+)
 
 func cfg(mutate func(*identity.Config)) identity.Config {
 	c := identity.Config{
@@ -47,7 +50,7 @@ func TestRegisterLoginAuthenticateLogout(t *testing.T) {
 	ctx := context.Background()
 	svc, _, _ := newService(t, nil)
 
-	u, sess, err := svc.Register(ctx, "  Ada@Example.com ", goodPassword)
+	u, sess, err := svc.Register(ctx, "  Ada@Example.com ", goodPassword, testAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +86,7 @@ func TestRegisterLoginAuthenticateLogout(t *testing.T) {
 func TestSessionTokenIsStoredOnlyAsHash(t *testing.T) {
 	ctx := context.Background()
 	svc, pool, _ := newService(t, nil)
-	_, sess, err := svc.Register(ctx, "ada@example.com", goodPassword)
+	_, sess, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,13 +113,14 @@ func TestSessionTokenIsStoredOnlyAsHash(t *testing.T) {
 func TestLoginFailuresAreIndistinguishable(t *testing.T) {
 	ctx := context.Background()
 	svc, _, _ := newService(t, nil)
-	if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword); err != nil {
+	if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr); err != nil {
 		t.Fatal(err)
 	}
 	for name, c := range map[string][2]string{
-		"wrong password": {"ada@example.com", "not the password at all"},
-		"unknown email":  {"nobody@example.com", goodPassword},
-		"invalid email":  {"not an email", goodPassword},
+		"wrong password":    {"ada@example.com", "not the password at all"},
+		"unknown email":     {"nobody@example.com", goodPassword},
+		"invalid email":     {"not an email", goodPassword},
+		"overlong password": {"ada@example.com", strings.Repeat("x", 5000)},
 	} {
 		_, _, err := svc.Login(ctx, c[0], c[1], "2.2.2.2")
 		if !errors.Is(err, identity.ErrInvalidCredentials) {
@@ -128,7 +132,7 @@ func TestLoginFailuresAreIndistinguishable(t *testing.T) {
 func TestLoginIsRateLimitedAfterRepeatedFailures(t *testing.T) {
 	ctx := context.Background()
 	svc, _, _ := newService(t, nil)
-	if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword); err != nil {
+	if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 5; i++ {
@@ -151,42 +155,42 @@ func TestRegistrationRules(t *testing.T) {
 
 	t.Run("disabled", func(t *testing.T) {
 		svc, _, _ := newService(t, func(c *identity.Config) { c.RegistrationEnabled = false })
-		if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword); !errors.Is(err, identity.ErrRegistrationClosed) {
+		if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr); !errors.Is(err, identity.ErrRegistrationClosed) {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("cap of zero closes registration", func(t *testing.T) {
 		svc, _, _ := newService(t, func(c *identity.Config) { c.MaxUsers = 0 })
-		if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword); !errors.Is(err, identity.ErrRegistrationClosed) {
+		if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr); !errors.Is(err, identity.ErrRegistrationClosed) {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("cap reached", func(t *testing.T) {
 		svc, _, _ := newService(t, func(c *identity.Config) { c.MaxUsers = 2 })
 		for i := 0; i < 2; i++ {
-			if _, _, err := svc.Register(ctx, fmt.Sprintf("u%d@example.com", i), goodPassword); err != nil {
+			if _, _, err := svc.Register(ctx, fmt.Sprintf("u%d@example.com", i), goodPassword, testAddr); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if _, _, err := svc.Register(ctx, "u3@example.com", goodPassword); !errors.Is(err, identity.ErrRegistrationClosed) {
+		if _, _, err := svc.Register(ctx, "u3@example.com", goodPassword, testAddr); !errors.Is(err, identity.ErrRegistrationClosed) {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("duplicate email, case-insensitively", func(t *testing.T) {
 		svc, _, _ := newService(t, nil)
-		if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword); err != nil {
+		if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := svc.Register(ctx, "ADA@Example.com", goodPassword); !errors.Is(err, identity.ErrEmailTaken) {
+		if _, _, err := svc.Register(ctx, "ADA@Example.com", goodPassword, testAddr); !errors.Is(err, identity.ErrEmailTaken) {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("validation", func(t *testing.T) {
 		svc, _, _ := newService(t, nil)
-		if _, _, err := svc.Register(ctx, "nope", goodPassword); err == nil {
+		if _, _, err := svc.Register(ctx, "nope", goodPassword, testAddr); err == nil {
 			t.Error("accepted an invalid email")
 		}
-		if _, _, err := svc.Register(ctx, "ada@example.com", "short"); err == nil {
+		if _, _, err := svc.Register(ctx, "ada@example.com", "short", testAddr); err == nil {
 			t.Error("accepted a short password")
 		}
 	})
@@ -207,7 +211,7 @@ func TestRegistrationCapHoldsUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, _, errs[i] = svc.Register(ctx, fmt.Sprintf("user%d@example.com", i), goodPassword)
+			_, _, errs[i] = svc.Register(ctx, fmt.Sprintf("user%d@example.com", i), goodPassword, fmt.Sprintf("10.0.1.%d", i))
 		}()
 	}
 	close(start)
@@ -235,7 +239,7 @@ func TestRegistrationCapHoldsUnderConcurrency(t *testing.T) {
 func TestExpiredSessionsAreRejectedAndCleaned(t *testing.T) {
 	ctx := context.Background()
 	svc, pool, repo := newService(t, nil)
-	u, _, err := svc.Register(ctx, "ada@example.com", goodPassword)
+	u, _, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +269,7 @@ func TestExpiredSessionsAreRejectedAndCleaned(t *testing.T) {
 func TestDeletingAUserEndsTheirSessions(t *testing.T) {
 	ctx := context.Background()
 	svc, pool, _ := newService(t, nil)
-	_, sess, err := svc.Register(ctx, "ada@example.com", goodPassword)
+	_, sess, err := svc.Register(ctx, "ada@example.com", goodPassword, testAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,5 +278,66 @@ func TestDeletingAUserEndsTheirSessions(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, sess.Token); !errors.Is(err, identity.ErrUnauthenticated) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// The limiter must count an attempt BEFORE the slow password check. If it only
+// counted afterwards, a burst of parallel requests would all see "no failures
+// yet" and every one would get a guess.
+func TestParallelLoginGuessesCannotExceedTheLimit(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newService(t, func(c *identity.Config) { c.MaxConcurrentHashes = 8 })
+	if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, "9.9.9.9"); err != nil {
+		t.Fatal(err)
+	}
+
+	const attempts, allowed = 40, 5
+	var wg sync.WaitGroup
+	errs := make([]error, attempts)
+	start := make(chan struct{})
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, errs[i] = svc.Login(ctx, "ada@example.com", "a wrong password here", "7.7.7.7")
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	verified, refused := 0, 0
+	for _, err := range errs {
+		switch {
+		case errors.Is(err, identity.ErrInvalidCredentials):
+			verified++
+		case errors.Is(err, identity.ErrTooManyAttempts):
+			refused++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if verified != allowed || refused != attempts-allowed {
+		t.Fatalf("%d guesses were checked and %d refused; want exactly %d and %d", verified, refused, allowed, attempts-allowed)
+	}
+}
+
+func TestRegistrationAttemptsAreThrottledPerAddress(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _ := newService(t, nil)
+
+	// Invalid attempts count too: they are what a flood looks like. They are
+	// refused cheaply, before any hashing.
+	for i := 0; i < 10; i++ {
+		if _, _, err := svc.Register(ctx, "not an email", goodPassword, "6.6.6.6"); errors.Is(err, identity.ErrTooManyRegistrations) {
+			t.Fatalf("throttled after only %d attempts", i)
+		}
+	}
+	_, _, err := svc.Register(ctx, "ada@example.com", goodPassword, "6.6.6.6")
+	if !errors.Is(err, identity.ErrTooManyRegistrations) {
+		t.Fatalf("got %v, want ErrTooManyRegistrations", err)
+	}
+	if _, _, err := svc.Register(ctx, "ada@example.com", goodPassword, "6.6.6.7"); err != nil {
+		t.Fatalf("a different address was throttled too: %v", err)
 	}
 }

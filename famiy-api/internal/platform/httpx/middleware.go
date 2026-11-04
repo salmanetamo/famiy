@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -56,12 +57,15 @@ func OriginCheck(allowed ...string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if u, err := url.Parse(origin); err == nil && u.Host != "" && u.Host == r.Host {
+			// Same-origin is judged by host only: behind TLS termination the scheme
+			// the server sees is not the browser's. SameSite=Lax cookies cover the
+			// rest. Explicitly allowed origins are compared in full.
+			if u, err := url.Parse(origin); err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			for _, a := range allowed {
-				if origin == a {
+				if strings.EqualFold(origin, a) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -69,6 +73,18 @@ func OriginCheck(allowed ...string) func(http.Handler) http.Handler {
 			Error(w, r, apperr.Forbidden("origin_not_allowed", "request origin is not allowed"))
 		})
 	}
+}
+
+// SecurityHeaders marks every response as uncacheable (accounts, sessions and
+// family data must never be stored by shared caches) and stops browsers from
+// guessing content types.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Cache-Control", "no-store")
+		h.Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RequireJSON rejects unsafe requests that have a body but are not JSON. Together

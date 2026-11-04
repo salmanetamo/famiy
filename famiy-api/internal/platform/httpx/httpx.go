@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -65,6 +66,9 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusTooManyRequests
 	case apperr.KindUnsupportedType:
 		status = http.StatusUnsupportedMediaType
+	}
+	if ae.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(ae.RetryAfter.Round(time.Second)/time.Second)))
 	}
 	JSON(w, r, status, errorBody{errorDetail{ae.Code, ae.Message}})
 }

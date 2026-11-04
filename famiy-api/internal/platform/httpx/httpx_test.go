@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/apperr"
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/httpx"
@@ -67,6 +68,10 @@ func TestErrorStatusMapping(t *testing.T) {
 		{apperr.NotFound("c", "m"), http.StatusNotFound},
 		{apperr.Conflict("c", "m"), http.StatusConflict},
 		{apperr.TooLarge("c", "m"), http.StatusRequestEntityTooLarge},
+		{apperr.Unauthenticated("c", "m"), http.StatusUnauthorized},
+		{apperr.Forbidden("c", "m"), http.StatusForbidden},
+		{apperr.RateLimited("c", "m", 0), http.StatusTooManyRequests},
+		{apperr.UnsupportedType("c", "m"), http.StatusUnsupportedMediaType},
 		{errors.New("db exploded: password=hunter2"), http.StatusInternalServerError},
 	}
 	for _, tc := range tests {
@@ -116,4 +121,46 @@ func TestRecoverer(t *testing.T) {
 func asError(v any) error {
 	err, _ := v.(error)
 	return err
+}
+
+func TestRetryAfterHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	httpx.Error(rec, httptest.NewRequest(http.MethodGet, "/", nil), apperr.RateLimited("c", "m", 15*time.Minute))
+	if got := rec.Header().Get("Retry-After"); got != "900" {
+		t.Errorf("Retry-After = %q, want 900", got)
+	}
+	rec = httptest.NewRecorder()
+	httpx.Error(rec, httptest.NewRequest(http.MethodGet, "/", nil), apperr.RateLimited("c", "m", 0))
+	if got := rec.Header().Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After = %q, want none when no delay is known", got)
+	}
+}
+
+func TestOriginCheck(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	h := httpx.OriginCheck("http://localhost:5173")(ok)
+	tests := []struct {
+		name, method, origin string
+		want                 int
+	}{
+		{"no origin", "POST", "", 204},
+		{"same host", "POST", "https://example.com", 204},
+		{"same host, different case", "POST", "https://EXAMPLE.com", 204},
+		{"allow-listed, different case", "POST", "HTTP://LOCALHOST:5173", 204},
+		{"foreign", "POST", "https://evil.example", 403},
+		{"opaque null origin", "POST", "null", 403},
+		{"look-alike suffix", "POST", "https://example.com.evil.example", 403},
+		{"safe method ignores origin", "GET", "https://evil.example", 204},
+	}
+	for _, tc := range tests {
+		req := httptest.NewRequest(tc.method, "/", nil)
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, rec.Code, tc.want)
+		}
+	}
 }

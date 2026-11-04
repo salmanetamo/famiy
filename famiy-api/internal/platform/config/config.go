@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -60,7 +61,13 @@ func Load() (Config, error) {
 	if cfg.SessionTTL <= 0 {
 		return Config{}, errors.New("SESSION_TTL must be positive")
 	}
-	cfg.AllowedOrigins = splitList(os.Getenv("ALLOWED_ORIGINS"))
+	for _, o := range splitList(os.Getenv("ALLOWED_ORIGINS")) {
+		origin, oerr := normalizeOrigin(o)
+		if oerr != nil {
+			return Config{}, fmt.Errorf("parse ALLOWED_ORIGINS entry %q: %w", o, oerr)
+		}
+		cfg.AllowedOrigins = append(cfg.AllowedOrigins, origin)
+	}
 	for _, p := range splitList(os.Getenv("TRUSTED_PROXIES")) {
 		prefix, perr := netip.ParsePrefix(p)
 		if perr != nil {
@@ -69,6 +76,40 @@ func Load() (Config, error) {
 		cfg.TrustedProxies = append(cfg.TrustedProxies, prefix)
 	}
 	return cfg, nil
+}
+
+// normalizeOrigin accepts scheme://host[:port] (a trailing slash is tolerated)
+// and returns it lower-cased, the form browsers send in the Origin header.
+func normalizeOrigin(s string) (string, error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", err
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", errors.New("want an origin like https://app.example.com")
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return "", errors.New("an origin has no path, query, fragment or credentials")
+	}
+	return strings.ToLower(u.Scheme + "://" + u.Host), nil
+}
+
+// Warnings lists risky-but-valid settings. They are logged at startup, not
+// refused, so local development stays easy.
+func (c Config) Warnings() []string {
+	var w []string
+	if !c.CookieSecure {
+		w = append(w, "COOKIE_SECURE=false: session cookies may travel over plain HTTP; use this only for local development")
+	}
+	if c.RegistrationEnabled {
+		w = append(w, fmt.Sprintf("REGISTRATION_ENABLED=true: anyone who can reach this server may create an account, up to MAX_USERS=%d", c.MaxUsers))
+	}
+	if c.CookieSecure && len(c.TrustedProxies) == 0 {
+		w = append(w, "TRUSTED_PROXIES is empty: behind a reverse proxy every client appears to share the proxy's address, "+
+			"so one client's failed logins can lock everyone out. Set it to the proxy's network "+
+			"(with Docker, its bridge subnet, e.g. 172.16.0.0/12)")
+	}
+	return w
 }
 
 func getenv(key, fallback string) string {

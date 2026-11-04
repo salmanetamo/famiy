@@ -17,14 +17,18 @@ const (
 	MinPasswordLen = 12
 	MaxPasswordLen = 128 // bounds hashing cost for hostile input
 	maxEmailLen    = 254
+
+	loginWindow    = 15 * time.Minute // failed-login counting window
+	registerWindow = time.Hour        // registration attempt counting window
 )
 
 var (
-	ErrInvalidCredentials = apperr.Unauthenticated("invalid_credentials", "email or password is incorrect")
-	ErrUnauthenticated    = apperr.Unauthenticated("unauthenticated", "authentication required")
-	ErrRegistrationClosed = apperr.Forbidden("registration_closed", "registration is closed")
-	ErrEmailTaken         = apperr.Conflict("email_taken", "an account with this email already exists")
-	ErrTooManyAttempts    = apperr.RateLimited("too_many_attempts", "too many failed attempts; try again later")
+	ErrInvalidCredentials   = apperr.Unauthenticated("invalid_credentials", "email or password is incorrect")
+	ErrUnauthenticated      = apperr.Unauthenticated("unauthenticated", "authentication required")
+	ErrRegistrationClosed   = apperr.Forbidden("registration_closed", "registration is closed")
+	ErrEmailTaken           = apperr.Conflict("email_taken", "an account with this email already exists")
+	ErrTooManyAttempts      = apperr.RateLimited("too_many_attempts", "too many failed attempts; try again later", loginWindow)
+	ErrTooManyRegistrations = apperr.RateLimited("too_many_registrations", "too many registration attempts from this address; try again later", registerWindow)
 )
 
 // User is an account. The password hash never leaves the persistence layer
@@ -46,8 +50,10 @@ type Session struct {
 // addr-spec (no display name, no comments).
 func NormalizeEmail(raw string) (string, error) {
 	e := strings.ToLower(strings.TrimSpace(raw))
-	bad := apperr.Invalid("validation_failed", "email must be a valid address of at most 254 characters")
-	if len(e) < 3 || len(e) > maxEmailLen {
+	bad := apperr.Invalid("validation_failed", "email must be a valid ASCII address of at most 254 characters")
+	if len(e) < 3 || len(e) > maxEmailLen || !isASCII(e) {
+		// ASCII only: Go and PostgreSQL can disagree on lower-casing non-ASCII
+		// letters, and look-alike addresses would make confusable accounts.
 		return "", bad
 	}
 	addr, err := mail.ParseAddress(e)
@@ -55,6 +61,15 @@ func NormalizeEmail(raw string) (string, error) {
 		return "", bad
 	}
 	return e, nil
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidatePassword enforces length only: no composition rules.

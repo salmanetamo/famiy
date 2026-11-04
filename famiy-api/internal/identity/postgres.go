@@ -62,6 +62,14 @@ func (r *PgRepository) CreateUser(ctx context.Context, email, passwordHash strin
 	return u, nil
 }
 
+func (r *PgRepository) CountUsers(ctx context.Context) (int, error) {
+	var n int
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM app_user`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return n, nil
+}
+
 func (r *PgRepository) UserByEmail(ctx context.Context, email string) (User, string, error) {
 	var u User
 	var hash string

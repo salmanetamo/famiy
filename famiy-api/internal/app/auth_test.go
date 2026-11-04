@@ -35,7 +35,7 @@ func send(t *testing.T, h http.Handler, method, path, body string, opts ...reqOp
 func sessionCookie(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
 	t.Helper()
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "famiy_session" {
+		if strings.HasSuffix(c.Name, "famiy_session") {
 			return c
 		}
 	}
@@ -62,6 +62,11 @@ func TestAuthFlowOverHTTP(t *testing.T) {
 	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Path != "/" || c.Expires.IsZero() {
 		t.Errorf("weak cookie attributes: %+v", c)
 	}
+	// The __Host- prefix obliges browsers to reject the cookie unless it is
+	// Secure, Path=/ and has no Domain.
+	if c.Name != "__Host-famiy_session" || c.Domain != "" {
+		t.Errorf("cookie name/domain = %q / %q", c.Name, c.Domain)
+	}
 
 	me := send(t, h, "GET", "/auth/me", "", withCookie(c))
 	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"ada@example.com"`) {
@@ -70,7 +75,7 @@ func TestAuthFlowOverHTTP(t *testing.T) {
 	if send(t, h, "GET", "/auth/me", "").Code != http.StatusUnauthorized {
 		t.Error("/auth/me without a cookie must be 401")
 	}
-	bogus := &http.Cookie{Name: "famiy_session", Value: "not-a-real-token"}
+	bogus := &http.Cookie{Name: identity.CookieName(true), Value: "not-a-real-token"}
 	if send(t, h, "GET", "/auth/me", "", withCookie(bogus)).Code != http.StatusUnauthorized {
 		t.Error("/auth/me with a bogus cookie must be 401")
 	}
@@ -128,6 +133,9 @@ func TestLoginRateLimitOverHTTP(t *testing.T) {
 	rec := send(t, h, "POST", "/auth/login", creds("ada@example.com", pw))
 	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "too_many_attempts") {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "900" {
+		t.Errorf("Retry-After = %q, want 900 (the 15-minute window)", got)
 	}
 }
 
@@ -214,7 +222,41 @@ func TestInsecureCookieOnlyWhenConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := send(t, h, "POST", "/auth/register", creds("ada@example.com", pw))
-	if sessionCookie(t, rec).Secure {
+	c2 := sessionCookie(t, rec)
+	if c2.Secure {
 		t.Error("Secure attribute set although COOKIE_SECURE=false")
+	}
+	// Browsers refuse the __Host- prefix on a non-Secure cookie, so it must not be used.
+	if c2.Name != "famiy_session" {
+		t.Errorf("cookie name = %q, want the unprefixed name when not Secure", c2.Name)
+	}
+}
+
+func TestRegistrationThrottleOverHTTP(t *testing.T) {
+	h, _ := newApp(t)
+	for i := 0; i < 10; i++ {
+		send(t, h, "POST", "/auth/register", creds("nope", pw)) // invalid, but each counts
+	}
+	rec := send(t, h, "POST", "/auth/register", creds("ada@example.com", pw))
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "too_many_registrations") {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "3600" {
+		t.Errorf("Retry-After = %q, want 3600", got)
+	}
+}
+
+func TestEveryResponseIsUncacheable(t *testing.T) {
+	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
+	for _, rec := range []*httptest.ResponseRecorder{
+		send(t, h, "GET", "/healthz", ""),
+		send(t, h, "GET", "/auth/me", "", withCookie(c)),
+		send(t, h, "GET", "/auth/me", ""), // an error response
+		send(t, h, "GET", "/persons/1", "", withCookie(c)),
+	} {
+		if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("status %d is missing security headers: %v", rec.Code, rec.Header())
+		}
 	}
 }

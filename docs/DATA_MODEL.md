@@ -1,7 +1,7 @@
 # Data Model — Family Graph
 
 _Last updated: 2026-11-02. Source of truth: `famiy-api/migrations/`. This page explains it;
-if they disagree, the migrations win. Schema version: `000004_person_owner`._
+if they disagree, the migrations win. Schema version: `000005_partnership_update_guard`._
 
 ## Principles (ADR-001)
 - Kinship is a **DAG**, not a tree: a person has up to two parents.
@@ -54,7 +54,7 @@ Schema exists; **no API yet**.
 | Both ends exist | FKs | → `person_not_found` |
 | **At most two parents per child** | `BEFORE INSERT` trigger `trg_parent_link_rules` (constraint name `max_two_parents`) | → `too_many_parents` (409) |
 | **Acyclic** (nobody is their own ancestor) | same trigger (constraint name `no_cycle`) | → `would_create_cycle` (409) |
-| **Both ends of a link have the same owner** | same trigger (`same_owner`); `trg_partnership_same_owner` for partnerships | service checks both persons are the caller's → `person_not_found` (404); a DB-level hit is also reported as `person_not_found` so existence never leaks |
+| **Both ends of a link have the same owner** | same trigger (`same_owner`); `trg_partnership_same_owner` for partnerships (fires on INSERT and on UPDATE of either partner) | service checks both persons are the caller's → `person_not_found` (404); a DB-level hit is also reported as `person_not_found` so existence never leaks |
 | Ownership never changes | `trg_person_owner_immutable` (`owner_immutable`) | n/a |
 | Partnership stored once, canonically | `CHECK (partner_a < partner_b)` + PK | planned |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |

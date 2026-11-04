@@ -96,7 +96,7 @@ func TestResponsesCarryRequestID(t *testing.T) {
 
 func TestPersonRoutesRequireASession(t *testing.T) {
 	h, _ := newApp(t)
-	bogus := &http.Cookie{Name: "famiy_session", Value: "not-a-real-token"}
+	bogus := &http.Cookie{Name: identity.CookieName(true), Value: "not-a-real-token"}
 	routes := []struct{ method, path, body string }{
 		{"POST", "/persons", `{"given_name":"A"}`},
 		{"GET", "/persons/1", ""},

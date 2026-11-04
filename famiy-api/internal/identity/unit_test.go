@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -20,6 +21,8 @@ func TestNormalizeEmail(t *testing.T) {
 		{"  ada@example.com  ", "ada@example.com", true},
 		{"a@b", "a@b", true},
 		{"", "", false},
+		{"jürgen@example.com", "", false}, // non-ASCII local part
+		{"ada@bücher.example", "", false}, // non-ASCII domain
 		{"no-at-sign", "", false},
 		{"Ada <ada@example.com>", "", false}, // display names are not allowed
 		{"ada@example.com, bob@example.com", "", false},
@@ -119,48 +122,97 @@ type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) now() time.Time { return c.t }
 
+func testLimiter(clk *fakeClock) *attemptLimiter {
+	return newAttemptLimiter(clk.now, loginWindow, maxLoginAttemptsPerKey, maxLoginAttemptsPerIP)
+}
+
 func TestAttemptLimiter(t *testing.T) {
-	clk := &fakeClock{t: time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)}
-	l := newAttemptLimiter(clk.now)
+	clk := &fakeClock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := testLimiter(clk)
 
-	for i := 0; i < l.maxPerKey; i++ {
-		if l.blocked("a@x.com", "1.1.1.1") {
-			t.Fatalf("blocked after only %d failures", i)
+	for i := 0; i < maxLoginAttemptsPerKey; i++ {
+		if !l.reserve("a@x.com", "1.1.1.1") {
+			t.Fatalf("attempt %d refused before the limit", i+1)
 		}
-		l.fail("a@x.com", "1.1.1.1")
 	}
-	if !l.blocked("a@x.com", "1.1.1.1") {
-		t.Fatal("not blocked after reaching the per-key limit")
+	if l.reserve("a@x.com", "1.1.1.1") {
+		t.Fatal("attempt past the per-key limit was allowed")
 	}
-	if l.blocked("b@x.com", "1.1.1.1") {
-		t.Error("a different email from the same address must not be blocked yet")
+	if !l.reserve("b@x.com", "1.1.1.1") {
+		t.Error("a different email from the same address must still be allowed")
 	}
-	if l.blocked("a@x.com", "2.2.2.2") {
-		t.Error("the same email from a different address must not be blocked")
-	}
-
-	clk.t = clk.t.Add(l.window)
-	if l.blocked("a@x.com", "1.1.1.1") {
-		t.Error("still blocked after the window elapsed")
+	if !l.reserve("a@x.com", "2.2.2.2") {
+		t.Error("the same email from a different address must still be allowed")
 	}
 
-	// Per-address ceiling: many different emails from one address.
-	for i := 0; i < l.maxPerIP; i++ {
-		l.fail(string(rune('a'+i%26))+strings.Repeat("z", i), "9.9.9.9")
+	clk.t = clk.t.Add(loginWindow)
+	if !l.reserve("a@x.com", "1.1.1.1") {
+		t.Error("still refused after the window elapsed")
 	}
-	if !l.blocked("fresh@x.com", "9.9.9.9") {
+}
+
+func TestAttemptLimiterPerAddressCeiling(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := testLimiter(clk)
+	for i := 0; i < maxLoginAttemptsPerIP; i++ {
+		if !l.reserve(fmt.Sprintf("user%d@x.com", i), "9.9.9.9") {
+			t.Fatalf("attempt %d refused before the address limit", i+1)
+		}
+	}
+	if l.reserve("fresh@x.com", "9.9.9.9") {
 		t.Error("address-wide limit did not trigger")
 	}
+}
 
-	// A success clears the (email, address) counter but not the address one.
-	l2 := newAttemptLimiter(clk.now)
-	l2.fail("c@x.com", "3.3.3.3")
-	l2.reset("c@x.com", "3.3.3.3")
-	if l2.byKey[key("c@x.com", "3.3.3.3")] != nil {
-		t.Error("reset left the per-key counter in place")
+func TestAttemptLimiterRefusedAttemptsAreNotCounted(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := testLimiter(clk)
+	for i := 0; i < maxLoginAttemptsPerKey; i++ {
+		l.reserve("a@x.com", "1.1.1.1")
 	}
-	if l2.byIP["3.3.3.3"] == nil {
-		t.Error("reset must not clear the per-address counter")
+	for i := 0; i < 100; i++ {
+		l.reserve("a@x.com", "1.1.1.1") // hammering while locked out
+	}
+	// The lockout must end one window after it began, not be extended by the hammering.
+	clk.t = clk.t.Add(loginWindow)
+	if !l.reserve("a@x.com", "1.1.1.1") {
+		t.Fatal("refused attempts extended the lockout")
+	}
+}
+
+func TestAttemptLimiterRelease(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := testLimiter(clk)
+	for i := 0; i < maxLoginAttemptsPerKey-1; i++ {
+		l.reserve("a@x.com", "3.3.3.3") // four failures
+	}
+	l.reserve("a@x.com", "3.3.3.3") // the successful login...
+	l.release("a@x.com", "3.3.3.3") // ...clears the pair counter
+
+	if l.byKey[key("a@x.com", "3.3.3.3")] != nil {
+		t.Error("release left the per-key counter in place")
+	}
+	// The address still remembers the four failures, but not the success.
+	if got := l.byIP["3.3.3.3"].count; got != maxLoginAttemptsPerKey-1 {
+		t.Errorf("per-address count = %d, want %d", got, maxLoginAttemptsPerKey-1)
+	}
+}
+
+func TestAttemptLimiterMemoryIsBounded(t *testing.T) {
+	clk := &fakeClock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := testLimiter(clk)
+	for i := 0; i < maxTracked*3; i++ {
+		l.reserve(fmt.Sprintf("u%d@x.com", i), fmt.Sprintf("10.%d.%d.%d", i>>16&255, i>>8&255, i&255))
+	}
+	if len(l.byKey) > maxTracked || len(l.byIP) > maxTracked {
+		t.Fatalf("maps grew to %d and %d entries, cap is %d", len(l.byKey), len(l.byIP), maxTracked)
+	}
+
+	// Expired buckets are swept even when the maps are not full.
+	clk.t = clk.t.Add(2 * loginWindow)
+	l.reserve("late@x.com", "8.8.8.8")
+	if len(l.byKey) != 1 || len(l.byIP) != 1 {
+		t.Errorf("after the window: %d and %d entries remain, want 1 and 1", len(l.byKey), len(l.byIP))
 	}
 }
 
@@ -178,6 +230,11 @@ func TestClientAddr(t *testing.T) {
 		{"chain of trusted proxies is skipped", "10.0.0.2:5555", "198.51.100.7, 10.0.0.9", trusted, "198.51.100.7"},
 		{"garbage header falls back to peer", "10.0.0.2:5555", "not-an-ip", trusted, "10.0.0.2"},
 		{"trusted peer without header", "10.0.0.2:5555", "", trusted, "10.0.0.2"},
+		{"ipv6 collapses to its /64", "[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:4444", "", nil, "2001:db8:1:2::"},
+		{"another host in the same /64 shares the bucket", "[2001:db8:1:2:1111:2222:3333:4444]:4444", "", nil, "2001:db8:1:2::"},
+		{"ipv4-mapped ipv6 is the ipv4 address", "[::ffff:203.0.113.5]:4444", "", nil, "203.0.113.5"},
+		{"zone id is dropped", "[fe80::1%eth0]:4444", "", nil, "fe80::"},
+		{"forwarded ipv6 client is canonicalised", "10.0.0.2:5555", "2001:db8:9:9:1:2:3:4", trusted, "2001:db8:9:9::"},
 	}
 	for _, tc := range tests {
 		r := &http.Request{RemoteAddr: tc.remote, Header: http.Header{}}

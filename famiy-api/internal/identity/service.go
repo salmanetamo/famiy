@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Config is the service's behaviour, normally filled from the environment.
@@ -18,8 +19,14 @@ type Config struct {
 	MaxUsers            int           // registration closes at this many accounts; 0 closes it
 	SessionTTL          time.Duration // absolute session lifetime
 	Params              Params        // zero value means DefaultParams
-	MaxConcurrentHashes int           // zero means 2
+	MaxConcurrentHashes int           // login-side concurrent hashes; zero means 2
 }
+
+const (
+	maxLoginAttemptsPerKey = 5  // per (email, address) per loginWindow
+	maxLoginAttemptsPerIP  = 30 // per address per loginWindow
+	maxRegisterPerIP       = 10 // registration attempts per address per registerWindow
+)
 
 // ErrNoUser is returned by Repository.UserByEmail and UserBySession when no
 // row matches. It stays inside this module: callers see ErrInvalidCredentials
@@ -30,6 +37,7 @@ var ErrNoUser = errors.New("no such user or session")
 // maxUsers and return ErrRegistrationClosed / ErrEmailTaken.
 type Repository interface {
 	CreateUser(ctx context.Context, email, passwordHash string, maxUsers int) (User, error)
+	CountUsers(ctx context.Context) (int, error)
 	UserByEmail(ctx context.Context, email string) (u User, passwordHash string, err error)
 	CreateSession(ctx context.Context, tokenHash []byte, userID int64, expiresAt time.Time) error
 	UserBySession(ctx context.Context, tokenHash []byte, now time.Time) (User, error)
@@ -38,11 +46,15 @@ type Repository interface {
 }
 
 type Service struct {
-	repo    Repository
-	hasher  *Hasher
-	cfg     Config
-	now     func() time.Time
-	limiter *attemptLimiter
+	repo   Repository
+	hasher *Hasher // login: verification
+	// registerHasher has its own single hash slot, so a flood of registrations
+	// cannot occupy the slots that logins need.
+	registerHasher *Hasher
+	cfg            Config
+	now            func() time.Time
+	limiter        *attemptLimiter // login attempts, by (email, address) and by address
+	regLimiter     *attemptLimiter // registration attempts, by address
 }
 
 func NewService(repo Repository, cfg Config) (*Service, error) {
@@ -59,14 +71,30 @@ func NewService(repo Repository, cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create hasher: %w", err)
 	}
+	registerHasher, err := NewHasher(cfg.Params, 1)
+	if err != nil {
+		return nil, fmt.Errorf("create register hasher: %w", err)
+	}
 	now := time.Now
-	return &Service{repo: repo, hasher: hasher, cfg: cfg, now: now, limiter: newAttemptLimiter(now)}, nil
+	return &Service{
+		repo:           repo,
+		hasher:         hasher,
+		registerHasher: registerHasher,
+		cfg:            cfg,
+		now:            now,
+		limiter:        newAttemptLimiter(now, loginWindow, maxLoginAttemptsPerKey, maxLoginAttemptsPerIP),
+		regLimiter:     newAttemptLimiter(now, registerWindow, maxRegisterPerIP, maxRegisterPerIP),
+	}, nil
 }
 
-// Register creates an account and signs it in.
-func (s *Service) Register(ctx context.Context, rawEmail, password string) (User, Session, error) {
+// Register creates an account and signs it in. clientAddr throttles repeated
+// attempts from one address.
+func (s *Service) Register(ctx context.Context, rawEmail, password, clientAddr string) (User, Session, error) {
 	if !s.cfg.RegistrationEnabled {
 		return User{}, Session{}, ErrRegistrationClosed
+	}
+	if !s.regLimiter.reserve("", clientAddr) {
+		return User{}, Session{}, ErrTooManyRegistrations
 	}
 	email, err := NormalizeEmail(rawEmail)
 	if err != nil {
@@ -75,7 +103,17 @@ func (s *Service) Register(ctx context.Context, rawEmail, password string) (User
 	if err := ValidatePassword(password); err != nil {
 		return User{}, Session{}, err
 	}
-	hash, err := s.hasher.Hash(ctx, password)
+	// Cheap early refusal so a full instance does not spend an expensive hash on
+	// every request. CreateUser re-checks atomically; this read is an
+	// optimisation only.
+	n, err := s.repo.CountUsers(ctx)
+	if err != nil {
+		return User{}, Session{}, fmt.Errorf("count users: %w", err)
+	}
+	if n >= s.cfg.MaxUsers {
+		return User{}, Session{}, ErrRegistrationClosed
+	}
+	hash, err := s.registerHasher.Hash(ctx, password)
 	if err != nil {
 		return User{}, Session{}, fmt.Errorf("hash password: %w", err)
 	}
@@ -90,15 +128,18 @@ func (s *Service) Register(ctx context.Context, rawEmail, password string) (User
 	return u, sess, nil
 }
 
-// Login verifies credentials and starts a session. clientAddr keys the failed-
-// attempt limiter. Every failure looks the same to the caller.
+// Login verifies credentials and starts a session. clientAddr keys the attempt
+// limiter. Every credential failure looks the same to the caller.
 func (s *Service) Login(ctx context.Context, rawEmail, password, clientAddr string) (User, Session, error) {
 	email := limiterEmail(rawEmail)
-	if s.limiter.blocked(email, clientAddr) {
+	// Reserve the attempt up front: counting only after the slow verification
+	// would let parallel requests all pass the check.
+	if !s.limiter.reserve(email, clientAddr) {
 		return User{}, Session{}, ErrTooManyAttempts
 	}
-	fail := func() (User, Session, error) {
-		s.limiter.fail(email, clientAddr)
+	// Reject absurd passwords before spending a hash on them. No account can have
+	// one, so this reveals nothing.
+	if utf8.RuneCountInString(password) > MaxPasswordLen {
 		return User{}, Session{}, ErrInvalidCredentials
 	}
 
@@ -107,14 +148,14 @@ func (s *Service) Login(ctx context.Context, rawEmail, password, clientAddr stri
 		if derr := s.hasher.VerifyDummy(ctx, password); derr != nil {
 			return User{}, Session{}, fmt.Errorf("verify: %w", derr)
 		}
-		return fail()
+		return User{}, Session{}, ErrInvalidCredentials
 	}
 	u, hash, err := s.repo.UserByEmail(ctx, normalized)
 	if errors.Is(err, ErrNoUser) {
 		if derr := s.hasher.VerifyDummy(ctx, password); derr != nil {
 			return User{}, Session{}, fmt.Errorf("verify: %w", derr)
 		}
-		return fail()
+		return User{}, Session{}, ErrInvalidCredentials
 	}
 	if err != nil {
 		return User{}, Session{}, fmt.Errorf("find user: %w", err)
@@ -124,10 +165,10 @@ func (s *Service) Login(ctx context.Context, rawEmail, password, clientAddr stri
 		return User{}, Session{}, fmt.Errorf("verify password: %w", err)
 	}
 	if !ok {
-		return fail()
+		return User{}, Session{}, ErrInvalidCredentials
 	}
 
-	s.limiter.reset(email, clientAddr)
+	s.limiter.release(email, clientAddr)
 	if err := s.repo.DeleteExpiredSessions(ctx, s.now()); err != nil {
 		// Housekeeping only; expired sessions are already ignored on lookup.
 		slog.WarnContext(ctx, "delete expired sessions", "err", err)

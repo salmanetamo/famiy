@@ -376,6 +376,31 @@ tree-scoped routes (`/trees/{id}/…`) and to keep registration open for now.
 - Account existence is observable through registration (409 on a taken email); accepted at
   this scale, mitigated by the cap.
 
+**Amendments after the security review (2026-11-04):**
+- **Limiter reserves, then verifies.** The first version counted a failed login only after the
+  slow password check, so a burst of parallel requests all passed the check (a test with 40
+  parallel guesses saw all 40 checked). An attempt is now counted before verification and
+  handed back on success. Refused attempts are not counted, so hammering a locked-out
+  account does not extend the lockout.
+- **Registration is throttled and isolated.** 10 attempts per address per hour (valid or not),
+  a cheap cap check before hashing, and its own single hash slot so a signup flood cannot
+  starve logins. Known limit: an attacker who fills `MAX_USERS` closes registration for
+  everyone; the kill switch and cap are the only controls on that.
+- **Addresses are canonicalised** before keying limiters: IPv6 to its /64, IPv4-in-IPv6
+  unmapped, zone ids dropped. Limiter memory is bounded (10,000 entries per map).
+- **No global per-email cap** (owner decision): it would stop distributed guessing at one
+  account, but lets an attacker lock the real user out of their own account. With 12+
+  character passwords the owner accepted the risk. Revisit if guessing is observed.
+- **Unsafe settings warn, they do not refuse** (owner decision): `COOKIE_SECURE=false`, open
+  registration, and an empty `TRUSTED_PROXIES` behind HTTPS each log a startup warning.
+- Cookie is named `__Host-famiy_session` when Secure (unprefixed only for plain-HTTP local
+  development); emails are ASCII-only; every response is `Cache-Control: no-store` and
+  `nosniff`; 429s carry `Retry-After`; `ALLOWED_ORIGINS` is validated and normalised.
+- Not changed (reviewer nits, accepted): a failed session insert after a successful signup
+  leaves an account the client sees as an error; expired sessions are purged at login rather
+  than by a periodic job; stored hash `Time`/`Threads` are not range-checked (the database is
+  trusted); the Origin check compares hosts, not schemes, for same-origin requests.
+
 **Revisit trigger:**
 Reopen when (a) a second person needs to see another's tree (collaboration → trees),
 (b) email infrastructure is added (verification, reset), (c) the app runs on more than

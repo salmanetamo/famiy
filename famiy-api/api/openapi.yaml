@@ -74,14 +74,24 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: >
+            More than 10 registration attempts from this address within an hour, valid or not
+            (too_many_registrations)
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /auth/login:
     post:
       summary: Sign in
       description: >
-        Wrong password, unknown email and malformed email all return the same 401. After 5
-        failures for one email and address (or 30 for one address) within 15 minutes, further
-        attempts return 429 until the window ends, even with the right password.
+        Wrong password, unknown email and malformed email all return the same 401. Every
+        attempt counts as it starts: after 5 for one email and address (or 30 for one address)
+        within 15 minutes, further attempts return 429 until the window ends, even with the
+        right password. A successful login gives its attempt back. IPv6 clients are limited by /64.
       operationId: login
       security: []
       requestBody:
@@ -104,6 +114,8 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "429":
           description: Too many failed attempts (too_many_attempts)
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -229,14 +241,21 @@ components:
     cookieAuth:
       type: apiKey
       in: cookie
-      name: famiy_session
-      description: Opaque session token set by /auth/register and /auth/login.
+      name: __Host-famiy_session
+      description: >
+        Opaque session token set by /auth/register and /auth/login. The cookie is named
+        famiy_session (no prefix) only when the server runs with COOKIE_SECURE=false for
+        plain-HTTP local development; browsers reject the __Host- prefix on non-Secure cookies.
 
   headers:
+    RetryAfter:
+      description: Seconds to wait before retrying
+      schema: { type: integer, example: 900 }
     SessionCookie:
       description: >
-        famiy_session=<token>; HttpOnly; SameSite=Lax; Path=/; Expires=...; Secure (always,
-        except when COOKIE_SECURE=false for plain-HTTP local development).
+        __Host-famiy_session=<token>; HttpOnly; SameSite=Lax; Path=/; Expires=...; Secure (the
+        __Host- prefix and Secure are dropped only when COOKIE_SECURE=false for plain-HTTP local
+        development).
       schema: { type: string }
 
   parameters:
@@ -277,7 +296,7 @@ components:
       additionalProperties: false
       required: [email, password]
       properties:
-        email: { type: string, maxLength: 254 }
+        email: { type: string, maxLength: 254, description: ASCII only }
         password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
 
     User:

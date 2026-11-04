@@ -13,11 +13,20 @@ import (
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/httpx"
 )
 
-const defaultCookieName = "famiy_session"
+// CookieName returns the session cookie's name. With Secure on it carries the
+// __Host- prefix, which makes browsers refuse to accept it unless it is Secure,
+// Path=/ and has no Domain. Browsers reject the prefix on non-Secure cookies, so
+// plain-HTTP local development uses the bare name.
+func CookieName(secure bool) string {
+	if secure {
+		return "__Host-famiy_session"
+	}
+	return "famiy_session"
+}
 
 // HandlerConfig is the HTTP-facing part of the configuration.
 type HandlerConfig struct {
-	CookieName     string         // zero value means "famiy_session"
+	CookieName     string         // zero value means CookieName(CookieSecure)
 	CookieSecure   bool           // Secure attribute; false only for plain-HTTP local development
 	TrustedProxies []netip.Prefix // peers whose X-Forwarded-For is believed
 }
@@ -29,7 +38,7 @@ type Handler struct {
 
 func NewHandler(svc *Service, cfg HandlerConfig) *Handler {
 	if cfg.CookieName == "" {
-		cfg.CookieName = defaultCookieName
+		cfg.CookieName = CookieName(cfg.CookieSecure)
 	}
 	return &Handler{svc: svc, cfg: cfg}
 }
@@ -63,7 +72,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	u, sess, err := h.svc.Register(r.Context(), req.Email, req.Password)
+	u, sess, err := h.svc.Register(r.Context(), req.Email, req.Password, ClientAddr(r, h.cfg.TrustedProxies))
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
@@ -153,17 +162,22 @@ func (h *Handler) clearCookie(w http.ResponseWriter) {
 	})
 }
 
-// ClientAddr returns the address used to key the login limiter. X-Forwarded-For
+// ClientAddr returns the address used to key the rate limiters. X-Forwarded-For
 // is honoured only when the direct peer is a trusted proxy; then the right-most
-// entry that is not itself a trusted proxy is the client.
+// entry that is not itself a trusted proxy is the client. Addresses are
+// canonicalised (see canonicalAddr) so one client cannot mint fresh limiter
+// buckets by varying how its address is written or by rotating within a /64.
 func ClientAddr(r *http.Request, trusted []netip.Prefix) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
 	peer, err := netip.ParseAddr(host)
-	if err != nil || !within(peer, trusted) {
+	if err != nil {
 		return host
+	}
+	if !within(peer.Unmap(), trusted) {
+		return canonicalAddr(peer)
 	}
 	parts := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -171,11 +185,24 @@ func ClientAddr(r *http.Request, trusted []netip.Prefix) string {
 		if err != nil {
 			continue
 		}
-		if !within(a, trusted) {
-			return a.String()
+		if !within(a.Unmap().WithZone(""), trusted) {
+			return canonicalAddr(a)
 		}
 	}
-	return host
+	return canonicalAddr(peer)
+}
+
+// canonicalAddr unmaps IPv4-in-IPv6, drops zone identifiers, and reduces IPv6
+// to its /64: a single subscriber typically controls a whole /64, so the prefix
+// is the unit worth rate-limiting.
+func canonicalAddr(a netip.Addr) string {
+	a = a.Unmap().WithZone("")
+	if a.Is6() {
+		if p, err := a.Prefix(64); err == nil {
+			return p.Addr().String()
+		}
+	}
+	return a.String()
 }
 
 func within(a netip.Addr, prefixes []netip.Prefix) bool {
