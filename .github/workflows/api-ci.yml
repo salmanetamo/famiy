@@ -1,0 +1,64 @@
+name: api-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ["famiy-api/**", ".github/workflows/api-ci.yml"]
+  pull_request:
+    paths: ["famiy-api/**", ".github/workflows/api-ci.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: famiy-api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: famiy
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: famiy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U famiy -d famiy"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Integration tests create and drop a throwaway database per test.
+      TEST_DATABASE_URL: postgres://famiy:ci-only-password@localhost:5432/famiy?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: famiy-api/go.mod
+          cache-dependency-path: famiy-api/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          working-directory: famiy-api
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Build image
+        run: docker build -t famiy-api:ci .

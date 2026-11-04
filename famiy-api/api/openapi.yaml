@@ -1,0 +1,469 @@
+openapi: 3.1.0
+info:
+  title: Family Graph API
+  version: 0.1.0
+  description: >
+    Phase 4 vertical slice. Hand-maintained and documentation-only (no codegen);
+    the integration tests in internal/app are the executable contract.
+    Cookie-session authentication (ADR-004): sign in with /auth/register or /auth/login, which
+    set an HttpOnly session cookie. A person that belongs to another account is reported as 404,
+    exactly like one that does not exist. State-changing requests must send
+    Content-Type: application/json and, from a browser, a same-origin (or allow-listed) Origin.
+    Every response carries an X-Request-Id header; quote it when reporting a problem.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+# Everything requires a session unless an operation says `security: []`.
+security:
+  - cookieAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness and database connectivity
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: Service and database are up
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: ok, db: up }
+        "503":
+          description: Database unreachable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: unavailable, db: down }
+
+  /auth/register:
+    post:
+      summary: Create an account and sign in
+      description: >
+        Closed (403 registration_closed) when REGISTRATION_ENABLED is off or MAX_USERS accounts
+        already exist. Email is trimmed and lower-cased. Password: 12 to 128 characters.
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "201":
+          description: Account created; the session cookie is set
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400":
+          description: Invalid JSON, email or password (invalid_json, validation_failed)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Registration is closed (registration_closed)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Email already registered (email_taken)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: >
+            More than 10 registration attempts from this address within an hour, valid or not
+            (too_many_registrations)
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/login:
+    post:
+      summary: Sign in
+      description: >
+        Wrong password, unknown email and malformed email all return the same 401. Every
+        attempt counts as it starts: after 5 for one email and address (or 30 for one address)
+        within 15 minutes, further attempts return 429 until the window ends, even with the
+        right password. A successful login gives its attempt back. IPv6 clients are limited by /64.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "200":
+          description: Signed in; the session cookie is set
+          headers:
+            Set-Cookie: { $ref: "#/components/headers/SessionCookie" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Credentials rejected (invalid_credentials)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Too many failed attempts (too_many_attempts)
+          headers:
+            Retry-After: { $ref: "#/components/headers/RetryAfter" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/logout:
+    post:
+      summary: End the current session
+      description: Always 204, even without a valid session; the cookie is cleared.
+      operationId: logout
+      security: []
+      responses:
+        "204":
+          description: Signed out
+
+  /auth/me:
+    get:
+      summary: The signed-in account
+      operationId: me
+      responses:
+        "200":
+          description: The account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /persons:
+    post:
+      summary: Create a person
+      operationId: createPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePerson" }
+            example:
+              given_name: Ada
+              family_name: Lovelace
+              birth_date: "1815-12-10"
+              birth_approx: false
+              death_date: "1852-11-27"
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              description: URL of the new person
+              schema: { type: string, example: /persons/1 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400":
+          description: >
+            Malformed JSON, an unknown field, a wrongly typed field or trailing data
+            after the JSON value (invalid_json), or a rule violated (validation_failed):
+            blank or over-long name, dates outside 1000-01-01 .. today, death before
+            birth, birth_approx without birth_date.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: validation_failed, message: given_name is required }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "413":
+          description: Request body larger than 1 MiB (request_too_large)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: request_too_large, message: "request body exceeds 1048576 bytes" }
+
+  /persons/{id}:
+    get:
+      summary: Fetch a person
+      operationId: getPerson
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "200":
+          description: The person
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+
+  /persons/{id}/ancestors:
+    get:
+      summary: All ancestors of a person
+      description: >
+        Walks parent links upward with a recursive CTE. Each ancestor appears
+        once, at its shortest generational distance (parent = 1). Ordered by
+        generations, then id. Returns an empty list for a person with no known parents.
+      operationId: getAncestors
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "200":
+          description: Ancestors, nearest generation first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ancestors" }
+              example:
+                person_id: 3
+                ancestors:
+                  - { person_id: 2, generations: 1 }
+                  - { person_id: 1, generations: 2 }
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+
+  /persons/{id}/parents:
+    post:
+      summary: Add a parent to a person
+      description: >
+        Links the person in the path (the child) to an existing person (the parent). Both must
+        belong to the signed-in account; a person that is missing or belongs to someone else
+        is reported identically (404 person_not_found). A person has at most two parents, a
+        link cannot be repeated, and no link may make a person their own ancestor. There is no
+        Location header: a link has no URL of its own. Read parents back with
+        GET /persons/{id}/ancestors (generations = 1).
+      operationId: addParent
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddParent" }
+            example: { parent_id: 7 }
+      responses:
+        "201":
+          description: The link was created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentLink" }
+              example: { child_id: 9, parent_id: 7 }
+        "400":
+          description: >
+            Bad id (invalid_id), malformed body or wrong type (invalid_json), parent_id missing
+            or not positive (validation_failed), or a person named as their own parent
+            (self_parent)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+        "409":
+          description: >
+            The child already has two parents (too_many_parents), the link already exists
+            (duplicate_parent), or the parent is already a descendant of the child
+            (would_create_cycle)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: would_create_cycle, message: this parent link would make a person their own ancestor }
+
+  /persons/{id}/parents/{parentId}:
+    delete:
+      summary: Remove a parent from a person
+      description: >
+        Deletes the link between the person in the path (the child) and one of their parents. Both
+        must belong to the signed-in account; a person that is missing or belongs to someone else
+        is reported identically (404 person_not_found). If both are yours but are not linked, the
+        answer is 404 parent_link_not_found, so a repeated DELETE is not silently accepted.
+        Removing a link frees one of the child's two parent slots.
+      operationId: removeParent
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+        - $ref: "#/components/parameters/ParentId"
+      responses:
+        "204":
+          description: The link was removed
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: >
+            A person does not exist or is not yours (person_not_found), or they are not linked
+            (parent_link_not_found)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: parent_link_not_found, message: that person is not a parent of this person }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-famiy_session
+      description: >
+        Opaque session token set by /auth/register and /auth/login. The cookie is named
+        famiy_session (no prefix) only when the server runs with COOKIE_SECURE=false for
+        plain-HTTP local development; browsers reject the __Host- prefix on non-Secure cookies.
+
+  headers:
+    RetryAfter:
+      description: Seconds to wait before retrying
+      schema: { type: integer, example: 900 }
+    SessionCookie:
+      description: >
+        __Host-famiy_session=<token>; HttpOnly; SameSite=Lax; Path=/; Expires=...; Secure (the
+        __Host- prefix and Secure are dropped only when COOKIE_SECURE=false for plain-HTTP local
+        development).
+      schema: { type: string }
+
+  parameters:
+    ParentId:
+      name: parentId
+      in: path
+      required: true
+      description: The id of the parent whose link is removed
+      schema: { type: integer, format: int64, minimum: 1 }
+
+    PersonId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+
+  responses:
+    Unauthenticated:
+      description: No valid session (unauthenticated)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: unauthenticated, message: authentication required }
+    InvalidId:
+      description: id is not a positive integer (invalid_id)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: invalid_id, message: id must be a positive integer }
+    PersonNotFound:
+      description: >
+        No such person, or it belongs to another account (person_not_found). The two cases are
+        deliberately indistinguishable.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: person_not_found, message: person not found }
+
+  schemas:
+    Credentials:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 254, description: ASCII only }
+        password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+
+    User:
+      type: object
+      required: [id, email, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Health:
+      type: object
+      required: [status, db]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        db: { type: string, enum: [up, down] }
+
+    CreatePerson:
+      type: object
+      additionalProperties: false
+      required: [given_name]
+      properties:
+        given_name: { type: string, maxLength: 200, description: Required; surrounding whitespace is trimmed }
+        family_name: { type: [string, "null"], maxLength: 200 }
+        birth_date: { type: [string, "null"], format: date, description: "Between 1000-01-01 and today" }
+        birth_approx:
+          type: boolean
+          default: false
+          description: Birth date is approximate. Requires birth_date.
+        death_date:
+          type: [string, "null"]
+          format: date
+          description: Must not be before birth_date
+
+    Person:
+      type: object
+      required: [id, given_name, family_name, birth_date, birth_approx, death_date, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        given_name: { type: string }
+        family_name: { type: [string, "null"] }
+        birth_date: { type: [string, "null"], format: date }
+        birth_approx: { type: boolean }
+        death_date: { type: [string, "null"], format: date }
+        created_at: { type: string, format: date-time }
+
+    AddParent:
+      type: object
+      additionalProperties: false
+      required: [parent_id]
+      properties:
+        parent_id: { type: integer, format: int64, minimum: 1 }
+
+    ParentLink:
+      type: object
+      required: [child_id, parent_id]
+      properties:
+        child_id: { type: integer, format: int64 }
+        parent_id: { type: integer, format: int64 }
+
+    Ancestors:
+      type: object
+      required: [person_id, ancestors]
+      properties:
+        person_id: { type: integer, format: int64 }
+        ancestors:
+          type: array
+          items:
+            type: object
+            required: [person_id, generations]
+            properties:
+              person_id: { type: integer, format: int64 }
+              generations: { type: integer, minimum: 1 }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, description: Stable machine-readable code }
+            message: { type: string }

@@ -10,6 +10,7 @@ sub-decisions deliberately gated on proofs of concept (PoC-1, PoC-2/3).
 | 001 | Database | PostgreSQL as single store; recursive CTEs for traversal | **Accepted — PoC-1 confirms plain CTEs** (p95 ≤ ~0.65 ms at 50k) |
 | 002 | Visualization & layout | Decoupled layout/render; elkjs `layered` + union nodes + couple containers; SVG (PoC-2 + PoC-3) | **Accepted — layout & SVG both validated**; rendering *library* decided in build phase |
 | 003 | Backend language | Go (REST API) | Accepted |
+| 004 | Authentication & ownership | Server-side sessions + argon2id passwords; `owner_user_id` on `person`; gated open registration | **Proposed** (awaiting approval) |
 
 Guiding principles for this project: keep domain data separate from visual
 layout state; model kinship as a DAG (two parents), not a tree; derive what can
@@ -274,3 +275,134 @@ Go for the backend, exposing a REST API.
   the deliberate language stretch, not the main source of learning.
 
 **Note:** pin to the current stable Go release at implementation time.
+
+**Implementation notes (Phase 4, 2026-11-01):** pinned Go 1.27.3. Of the two options named
+in Consequences, **raw `pgx` v5 was chosen over `sqlc`** — three queries at the start, one
+of them a hand-tuned recursive CTE, and one fewer tool to maintain. The repository boundary
+keeps a later move to sqlc contained; if the query count grows into dozens, record it as
+a new ADR. Router: `chi`; migrations: `golang-migrate`.
+
+---
+
+### ADR-004: Authentication and data ownership
+**Date:** 2026-11-03
+**Status:** **Accepted 2026-11-03** (owner approved). Implementation in progress, in three
+slices: (1) auth tables + `identity` module — **done, tested**; (2) persons/relationship
+routes behind the session middleware, `person.owner_user_id`, `same_owner` rule — **done,
+tested**; (3) OpenAPI security scheme and docs — **done**, pending the owner's `make api-lint`.
+Nothing is deployed.
+
+**Context:**
+The API currently has no notion of a user: every endpoint is public and every person
+belongs to no one. Before the API is exposed, it needs (a) a way to identify callers and
+(b) a rule for who may see and change which persons. The data is family PII, including
+living relatives (see `01—PRODUCT_REQUIREMENTS.md`, open privacy question). Constraints:
+React SPA + Go API on one ≤ $10/month VM behind Caddy; solo-maintained; single-owner
+trees for the MVP, with collaboration possible later. The owner chose to defer
+tree-scoped routes (`/trees/{id}/…`) and to keep registration open for now.
+
+**Options considered (authentication):**
+- **Server-side sessions with email + password** — *(chosen)*
+- Self-issued JWT access + refresh tokens — rejected: revocation is hard, tokens live in
+  the SPA (XSS target), and statelessness buys nothing on one server.
+- Hosted identity provider (Auth0, Clerk, Supabase, Firebase) — rejected for now: family
+  PII would go to a vendor, free-tier terms can change, adds JWT validation.
+- Self-hosted OIDC server (Keycloak etc.) — rejected: too heavy for the budget VM.
+- "Sign in with Google" only — deferred: needs a Google account for everyone; still needs
+  our session layer, so it can be added later as a second login method.
+
+**Decision:**
+1. **Sessions.** Login issues a random 32-byte token in an `HttpOnly`, `Secure`,
+   `SameSite=Lax` cookie. The database stores only the **SHA-256 of the token**, so a
+   database leak does not leak live sessions. Sessions have an absolute expiry
+   (default 30 days) and are deleted on logout.
+2. **Passwords.** argon2id, with parameters taken from current OWASP guidance at
+   implementation time and a small cap on concurrent hashes to bound memory. Minimum
+   length 12, maximum 128 (bounds hashing cost); no composition rules. A login for an
+   unknown email still performs a dummy hash so timing does not reveal which emails exist.
+3. **Module.** A new `internal/identity` module (users, sessions, hashing, handlers,
+   `RequireAuth` middleware). Login *methods* are separate from sessions, so OIDC can be
+   added later without touching session handling.
+4. **Endpoints.** `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`,
+   `GET /auth/me`. Everything else, including `/persons/**`, requires a session;
+   `/healthz` and the register/login endpoints are public.
+5. **CSRF.** `SameSite=Lax`, JSON-only mutating requests (`Content-Type: application/json`
+   enforced), and an `Origin` check against a configured allowed origin. The SPA is
+   served same-origin behind Caddy.
+6. **Ownership.** `person.owner_user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE
+   RESTRICT` (deleting a user never silently deletes family data). Services take the owner
+   as an explicit parameter (`Create(ctx, ownerID, …)`, `Get(ctx, ownerID, id)`); the HTTP
+   layer reads it from the authenticated session. A person that exists but belongs to
+   someone else is reported as **404, not 403**, so existence does not leak.
+7. **Edges stay inside one owner.** The parent-link trigger gains a rule, identified by
+   constraint name `same_owner`: both ends of a link must have the same `owner_user_id`.
+   Without it, a user could link their person to someone else's and read that person's
+   data through the ancestors query.
+8. **Registration is open but bounded.** Two controls, both environment variables:
+   `REGISTRATION_ENABLED` (a kill switch; **defaults to false in code**, set to true in
+   `.env.example` for local development) and `MAX_USERS` (default 10). When the switch is
+   off or the cap is reached, registration returns 403 `registration_closed`. The cap
+   check and the insert happen under one advisory lock so concurrent signups cannot
+   exceed it.
+9. **Login rate limiting.** An in-memory limiter keyed by email and client address (single
+   instance, so no shared store). Behind Caddy the client address comes from
+   `X-Forwarded-For` only when the request arrives from the configured trusted proxy.
+10. **Deferred.** Email verification, password reset, MFA, OIDC, and collaboration. Until
+    email exists, a forgotten password is reset by the operator directly in the database.
+
+**Rationale:**
+- Cookie sessions fit a same-origin SPA with the fewest moving parts and give instant
+  revocation; the browser never exposes the token to JavaScript.
+- One database already holds everything else; sessions in Postgres add no new service.
+- An owner column now is a small migration; adding ownership after real data exists is a
+  migration that must also invent owners for existing rows. The explicit `ownerID`
+  parameter is the seam: when trees arrive, `owner_user_id` becomes a `tree_id` lookup and
+  the call sites barely change.
+- An open signup form on an internet-facing site would let strangers store data on a
+  personal VM; the cap and the switch bound that exposure cheaply.
+
+**Consequences:**
+- A migration adds `app_user`, `session`, and `person.owner_user_id NOT NULL`. It fails if
+  `person` already has rows. That is acceptable only because nothing is deployed and the
+  dev database holds test data; **once real data exists, this must become a backfill
+  migration.**
+- Existing endpoints, OpenAPI file, and integration tests change: every call needs a
+  session. `security: []` in `openapi.yaml` is replaced by a cookie security scheme.
+- When collaboration or trees arrive, `owner_user_id` is replaced by a `tree` /
+  `tree_member` model and persons are re-keyed — a real migration, accepted as the price of
+  deferring trees. Routes would then change to `/trees/{id}/…`.
+- Password reset is a manual operator task until email is added.
+- The cap and rate limiter are per-process (fine for one VM, wrong if scaled out).
+- Account existence is observable through registration (409 on a taken email); accepted at
+  this scale, mitigated by the cap.
+
+**Amendments after the security review (2026-11-04):**
+- **Limiter reserves, then verifies.** The first version counted a failed login only after the
+  slow password check, so a burst of parallel requests all passed the check (a test with 40
+  parallel guesses saw all 40 checked). An attempt is now counted before verification and
+  handed back on success. Refused attempts are not counted, so hammering a locked-out
+  account does not extend the lockout.
+- **Registration is throttled and isolated.** 10 attempts per address per hour (valid or not),
+  a cheap cap check before hashing, and its own single hash slot so a signup flood cannot
+  starve logins. Known limit: an attacker who fills `MAX_USERS` closes registration for
+  everyone; the kill switch and cap are the only controls on that.
+- **Addresses are canonicalised** before keying limiters: IPv6 to its /64, IPv4-in-IPv6
+  unmapped, zone ids dropped. Limiter memory is bounded (10,000 entries per map).
+- **No global per-email cap** (owner decision): it would stop distributed guessing at one
+  account, but lets an attacker lock the real user out of their own account. With 12+
+  character passwords the owner accepted the risk. Revisit if guessing is observed.
+- **Unsafe settings warn, they do not refuse** (owner decision): `COOKIE_SECURE=false`, open
+  registration, and an empty `TRUSTED_PROXIES` behind HTTPS each log a startup warning.
+- Cookie is named `__Host-famiy_session` when Secure (unprefixed only for plain-HTTP local
+  development); emails are ASCII-only; every response is `Cache-Control: no-store` and
+  `nosniff`; 429s carry `Retry-After`; `ALLOWED_ORIGINS` is validated and normalised.
+- Not changed (reviewer nits, accepted): a failed session insert after a successful signup
+  leaves an account the client sees as an error; expired sessions are purged at login rather
+  than by a periodic job; stored hash `Time`/`Threads` are not range-checked (the database is
+  trusted); the Origin check compares hosts, not schemes, for same-origin requests.
+
+**Revisit trigger:**
+Reopen when (a) a second person needs to see another's tree (collaboration → trees),
+(b) email infrastructure is added (verification, reset), (c) the app runs on more than
+one instance (limiter and cap need shared state), or (d) users ask for Google/other
+single sign-on.
