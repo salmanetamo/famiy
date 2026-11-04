@@ -19,6 +19,7 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
 | Migrations `000001_init` (PoC-1 schema) and `000002_integrity_hardening` (name/date CHECKs, single parent-link trigger with acyclicity) | implemented, tested (up → down → up; constraints and trigger covered; applied to a fresh database via `make up`) |
 | `POST /persons`, `GET /persons/{id}`, `GET /persons/{id}/ancestors`, `GET /healthz` | implemented, tested (handler + repo integration tests on real Postgres) |
 | Domain invariants: no self-parent, ≤ 2 parents, no duplicate edge, **no cycles** (all race-safe) | implemented, tested incl. two concurrency tests that fail without the lock (3/3) and pass with it (3/3). No HTTP endpoint creates parent links yet. |
+| ADR-004 slice 1: migration `000003_auth`, `internal/identity` (register, login, logout, me), argon2id, sessions, failed-login limiter, registration kill switch + user cap, Origin/JSON guards, new config | implemented, tested: unit + integration + HTTP tests; cap test fails 3/3 without its lock (11–15 signups through a cap of 3) and passes 3/3 with it; real server exercised with curl. **Persons/relationship routes are still public** until slice 2. |
 | Phase 4 review (`go-reviewer`) findings: cycles, trigger UPDATE hole, unmigrated `make up`, 413/trailing-data/error-text handling, panic double-write, request-id header, name/date bounds, `.dockerignore`, port default | implemented, tested (see below); the reviewer read code only and ran nothing |
 | Lint/vet/build/test (local) | tested: all green |
 | `go test -race` | **not run locally** (no cgo/C compiler on the dev machine); runs in CI only |
@@ -93,7 +94,9 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
 - Final rendering *library* (Cytoscape.js vs. React Flow) — decide in the build
   phase (DX / graph APIs, not render performance).
 - Hosting provider (Hetzner leaning on price/performance) — confirm at deploy time.
-- Authentication approach — **direction chosen 2026-11-02, ADR-004 not yet written:**
+- Authentication approach — **ADR-004 accepted 2026-11-03; slice 1 implemented** (see the
+  Phase 4 table); slices 2 (protect routes, ownership) and 3 (OpenAPI, docs) pending. The ADR
+  is authoritative where it differs from the summary below:
   server-side sessions (HttpOnly cookie, sessions in Postgres) with email + argon2id
   password, in a separate `internal/identity` module; registration **open for now**;
   tree-scoped routes (`/trees/{id}/…`) **deferred** (no `tree` / `tree_member` tables yet).

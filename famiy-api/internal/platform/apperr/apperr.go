@@ -6,10 +6,14 @@ package apperr
 type Kind int
 
 const (
-	KindInvalid  Kind = iota + 1 // caller supplied bad input
-	KindNotFound                 // referenced entity does not exist
-	KindConflict                 // request is valid but violates current state
-	KindTooLarge                 // request exceeds a size limit
+	KindInvalid         Kind = iota + 1 // caller supplied bad input
+	KindNotFound                        // referenced entity does not exist
+	KindConflict                        // request is valid but violates current state
+	KindTooLarge                        // request exceeds a size limit
+	KindUnauthenticated                 // no valid credentials / session
+	KindForbidden                       // understood, but not allowed
+	KindRateLimited                     // too many attempts
+	KindUnsupportedType                 // unsupported request content type
 )
 
 // Error is a domain error with a stable machine-readable Code and a message
@@ -22,7 +26,11 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-func Invalid(code, msg string) *Error  { return &Error{KindInvalid, code, msg} }
-func NotFound(code, msg string) *Error { return &Error{KindNotFound, code, msg} }
-func Conflict(code, msg string) *Error { return &Error{KindConflict, code, msg} }
-func TooLarge(code, msg string) *Error { return &Error{KindTooLarge, code, msg} }
+func Invalid(code, msg string) *Error         { return &Error{KindInvalid, code, msg} }
+func NotFound(code, msg string) *Error        { return &Error{KindNotFound, code, msg} }
+func Conflict(code, msg string) *Error        { return &Error{KindConflict, code, msg} }
+func TooLarge(code, msg string) *Error        { return &Error{KindTooLarge, code, msg} }
+func Unauthenticated(code, msg string) *Error { return &Error{KindUnauthenticated, code, msg} }
+func Forbidden(code, msg string) *Error       { return &Error{KindForbidden, code, msg} }
+func RateLimited(code, msg string) *Error     { return &Error{KindRateLimited, code, msg} }
+func UnsupportedType(code, msg string) *Error { return &Error{KindUnsupportedType, code, msg} }

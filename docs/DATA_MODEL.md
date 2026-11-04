@@ -1,7 +1,7 @@
 # Data Model — Family Graph
 
 _Last updated: 2026-11-02. Source of truth: `famiy-api/migrations/`. This page explains it;
-if they disagree, the migrations win. Schema version: `000002_integrity_hardening`._
+if they disagree, the migrations win. Schema version: `000003_auth`._
 
 ## Principles (ADR-001)
 - Kinship is a **DAG**, not a tree: a person has up to two parents.
@@ -22,6 +22,17 @@ if they disagree, the migrations win. Schema version: `000002_integrity_hardenin
 | `created_at` | timestamptz, not null, default now() | |
 
 Not modelled yet: photo, bio, residence, owner/tree, sex. Each arrives as its own migration.
+
+### `app_user` and `session` (ADR-004)
+`app_user(id, email, password_hash, created_at)` — `email` is stored trimmed and lower-cased
+(CHECK keeps it so) with a UNIQUE constraint, giving case-insensitive uniqueness;
+`password_hash` is a PHC-format argon2id string. `session(token_hash, user_id, created_at,
+expires_at)` — PK is the **SHA-256 of the session token** (exactly 32 bytes, CHECK), so the
+database never holds a usable token; rows cascade-delete with their user and expired rows
+are ignored on lookup and purged on login. Account creation is serialised by an advisory
+lock so `MAX_USERS` cannot be exceeded under concurrent signups.
+**Not yet linked to `person`:** `person.owner_user_id` and the `same_owner` link rule are
+the next slice, so until then every person is visible to every caller.
 
 ### `parent_child` (the atomic kinship edge)
 `(parent_id, child_id)` — composite PK, both FKs to `person` with `ON DELETE CASCADE`.

@@ -40,7 +40,13 @@ func run() error {
 	}
 	defer pool.Close()
 
-	handler, _ := app.NewRouter(pool)
+	handler, _, err := app.NewRouter(pool, app.ConfigFrom(cfg))
+	if err != nil {
+		return fmt.Errorf("build router: %w", err)
+	}
+	logger.Info("auth configured",
+		"registration_enabled", cfg.RegistrationEnabled, "max_users", cfg.MaxUsers,
+		"cookie_secure", cfg.CookieSecure, "session_ttl", cfg.SessionTTL.String())
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

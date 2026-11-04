@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,15 +12,38 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/salmanetamo/famiy/famiy-api/internal/identity"
 	"github.com/salmanetamo/famiy/famiy-api/internal/person"
+	"github.com/salmanetamo/famiy/famiy-api/internal/platform/config"
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/httpx"
 	"github.com/salmanetamo/famiy/famiy-api/internal/relationship"
 )
+
+// Config is what the router needs beyond the database pool.
+type Config struct {
+	Identity       identity.Config
+	Handler        identity.HandlerConfig
+	AllowedOrigins []string
+}
+
+// ConfigFrom derives the router configuration from the environment-backed config.
+func ConfigFrom(c config.Config) Config {
+	return Config{
+		Identity: identity.Config{
+			RegistrationEnabled: c.RegistrationEnabled,
+			MaxUsers:            c.MaxUsers,
+			SessionTTL:          c.SessionTTL,
+		},
+		Handler:        identity.HandlerConfig{CookieSecure: c.CookieSecure, TrustedProxies: c.TrustedProxies},
+		AllowedOrigins: c.AllowedOrigins,
+	}
+}
 
 // Services exposes the wired services (tests use them to seed data).
 type Services struct {
 	Persons       *person.Service
 	Relationships *relationship.Service
+	Identity      *identity.Service
 }
 
 // Pinger reports whether the database is reachable.
@@ -28,18 +52,26 @@ type Pinger interface {
 }
 
 // NewRouter builds the HTTP handler and the services behind it.
-func NewRouter(pool *pgxpool.Pool) (http.Handler, Services) {
+func NewRouter(pool *pgxpool.Pool, cfg Config) (http.Handler, Services, error) {
 	personSvc := person.NewService(person.NewPgRepository(pool))
 	relSvc := relationship.NewService(relationship.NewPgRepository(pool), personSvc)
+	identSvc, err := identity.NewService(identity.NewPgRepository(pool), cfg.Identity)
+	if err != nil {
+		return nil, Services{}, fmt.Errorf("create identity service: %w", err)
+	}
 
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, httpx.RequestLogger, httpx.Recoverer)
+	// Order: request id first so every log line and response has one; the logger
+	// wraps the recoverer so recovered panics are logged as 500s.
+	r.Use(middleware.RequestID, httpx.RequestLogger, httpx.Recoverer,
+		httpx.OriginCheck(cfg.AllowedOrigins...), httpx.RequireJSON)
 
 	r.Get("/healthz", healthz(pool))
+	identity.NewHandler(identSvc, cfg.Handler).Routes(r)
 	person.NewHandler(personSvc).Routes(r)
 	relationship.NewHandler(relSvc).Routes(r)
 
-	return r, Services{Persons: personSvc, Relationships: relSvc}
+	return r, Services{Persons: personSvc, Relationships: relSvc, Identity: identSvc}, nil
 }
 
 func healthz(db Pinger) http.HandlerFunc {

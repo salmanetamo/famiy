@@ -8,8 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/salmanetamo/famiy/famiy-api/internal/app"
+	"github.com/salmanetamo/famiy/famiy-api/internal/identity"
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/testdb"
 	"github.com/salmanetamo/famiy/famiy-api/internal/relationship"
 )
@@ -17,9 +19,34 @@ import (
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// testConfig opens registration and uses minimal argon2 cost so tests are fast.
+func testConfig() app.Config {
+	return app.Config{
+		Identity: identity.Config{
+			RegistrationEnabled: true,
+			MaxUsers:            100,
+			SessionTTL:          time.Hour,
+			Params:              identity.Params{Memory: 8, Time: 1, Threads: 1, KeyLen: 32, SaltLen: 16},
+		},
+		Handler: identity.HandlerConfig{CookieSecure: true},
+	}
+}
+
+func newApp(t *testing.T) (http.Handler, app.Services) {
+	t.Helper()
+	h, svcs, err := app.NewRouter(testdb.New(t), testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, svcs
 }
 
 func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
@@ -32,7 +59,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 }
 
 func TestHealthz(t *testing.T) {
-	h, _ := app.NewRouter(testdb.New(t))
+	h, _ := newApp(t)
 	rec := do(t, h, http.MethodGet, "/healthz", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
@@ -44,7 +71,10 @@ func TestHealthz(t *testing.T) {
 
 func TestHealthzReportsDatabaseDown(t *testing.T) {
 	pool := testdb.New(t)
-	h, _ := app.NewRouter(pool)
+	h, _, err := app.NewRouter(pool, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
 	pool.Close() // simulate the database going away
 	rec := do(t, h, http.MethodGet, "/healthz", "")
 	if rec.Code != http.StatusServiceUnavailable {
@@ -53,7 +83,7 @@ func TestHealthzReportsDatabaseDown(t *testing.T) {
 }
 
 func TestResponsesCarryRequestID(t *testing.T) {
-	h, _ := app.NewRouter(testdb.New(t))
+	h, _ := newApp(t)
 	rec := do(t, h, http.MethodGet, "/persons/4242", "") // an error response
 	if rec.Header().Get("X-Request-Id") == "" {
 		t.Fatal("X-Request-Id header missing")
@@ -61,7 +91,7 @@ func TestResponsesCarryRequestID(t *testing.T) {
 }
 
 func TestCreateAndGetPerson(t *testing.T) {
-	h, _ := app.NewRouter(testdb.New(t))
+	h, _ := newApp(t)
 
 	rec := do(t, h, http.MethodPost, "/persons",
 		`{"given_name":"  Ada ","family_name":"Lovelace","birth_date":"1815-12-10","birth_approx":true}`)
@@ -90,7 +120,7 @@ func TestCreateAndGetPerson(t *testing.T) {
 }
 
 func TestPersonErrors(t *testing.T) {
-	h, _ := app.NewRouter(testdb.New(t))
+	h, _ := newApp(t)
 	tests := []struct {
 		name, method, path, body string
 		wantStatus               int
@@ -128,7 +158,7 @@ func TestPersonErrors(t *testing.T) {
 }
 
 func TestAncestorsEndpoint(t *testing.T) {
-	h, svcs := app.NewRouter(testdb.New(t))
+	h, svcs := newApp(t)
 	ids := map[string]int64{}
 	for _, n := range []string{"grand", "parent", "child"} {
 		rec := do(t, h, http.MethodPost, "/persons", `{"given_name":"`+n+`"}`)

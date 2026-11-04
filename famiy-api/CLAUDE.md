@@ -26,6 +26,14 @@ without it they skip, which is not a pass.
 Raw pgx v5 behind repository interfaces; no sqlc (chosen in Phase 4, revisit if the query
 count grows into dozens, which would then warrant an ADR). Router is chi; config is env-only.
 
+## Auth (ADR-004)
+`internal/identity`: server-side sessions (random token in an HttpOnly cookie; only its SHA-256
+is stored), argon2id passwords (OWASP minimum, checked 2026-11-03), failed-login limiter,
+`RequireAuth` middleware. Settings: `REGISTRATION_ENABLED` (code default **false**), `MAX_USERS`,
+`SESSION_TTL`, `COOKIE_SECURE` (code default **true**), `ALLOWED_ORIGINS`, `TRUSTED_PROXIES`.
+Never log passwords, tokens or emails; log user ids. Unsafe requests must be JSON and pass the
+Origin check (both global middleware).
+
 ## Skills and agents
 `.claude/skills/`: `new-migration`, `new-endpoint`, `run-checks`. Agent: `go-reviewer`.
 

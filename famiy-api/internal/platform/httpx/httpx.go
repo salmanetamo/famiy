@@ -56,6 +56,14 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusConflict
 	case apperr.KindTooLarge:
 		status = http.StatusRequestEntityTooLarge
+	case apperr.KindUnauthenticated:
+		status = http.StatusUnauthorized
+	case apperr.KindForbidden:
+		status = http.StatusForbidden
+	case apperr.KindRateLimited:
+		status = http.StatusTooManyRequests
+	case apperr.KindUnsupportedType:
+		status = http.StatusUnsupportedMediaType
 	}
 	JSON(w, r, status, errorBody{errorDetail{ae.Code, ae.Message}})
 }
