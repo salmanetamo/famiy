@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -173,5 +174,118 @@ func TestAddParentCannotRewireAnotherAccountsTree(t *testing.T) {
 	anc := decode(t, send(t, h, "GET", "/persons/"+itoa(bobKid)+"/ancestors", "", withCookie(bob)))
 	if list, _ := anc["ancestors"].([]any); len(list) != 0 {
 		t.Fatalf("Alice created a link inside Bob's tree: %v", anc)
+	}
+}
+
+func unlink(t *testing.T, h http.Handler, c *http.Cookie, child, parent int64, opts ...reqOpt) *httptest.ResponseRecorder {
+	t.Helper()
+	return send(t, h, "DELETE", "/persons/"+itoa(child)+"/parents/"+itoa(parent), "", append(opts, withCookie(c))...)
+}
+
+func ancestorCount(t *testing.T, h http.Handler, c *http.Cookie, id int64) int {
+	t.Helper()
+	anc := decode(t, send(t, h, "GET", "/persons/"+itoa(id)+"/ancestors", "", withCookie(c)))
+	list, _ := anc["ancestors"].([]any)
+	return len(list)
+}
+
+func TestRemoveParentDeletesTheLink(t *testing.T) {
+	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
+	mum, dad, kid := mkPerson(t, h, c, "mum"), mkPerson(t, h, c, "dad"), mkPerson(t, h, c, "kid")
+	mkLink(t, h, c, mum, kid)
+	mkLink(t, h, c, dad, kid)
+
+	rec := unlink(t, h, c, kid, mum)
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("got %d with body %q, want 204 and no body", rec.Code, rec.Body)
+	}
+	if n := ancestorCount(t, h, c, kid); n != 1 {
+		t.Fatalf("kid has %d ancestors after removing one parent, want 1", n)
+	}
+
+	again := unlink(t, h, c, kid, mum)
+	if again.Code != http.StatusNotFound || !strings.Contains(again.Body.String(), "parent_link_not_found") {
+		t.Fatalf("second removal: %d %s, want 404 parent_link_not_found", again.Code, again.Body)
+	}
+	// The freed slot can be reused.
+	mkLink(t, h, c, mum, kid)
+	if n := ancestorCount(t, h, c, kid); n != 2 {
+		t.Fatalf("kid has %d ancestors after re-adding, want 2", n)
+	}
+}
+
+func TestRemoveParentErrors(t *testing.T) {
+	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
+	a, b := mkPerson(t, h, c, "a"), mkPerson(t, h, c, "b")
+	mkLink(t, h, c, a, b)
+
+	tests := []struct {
+		name, path string
+		wantStatus int
+		wantCode   string
+	}{
+		{"people exist but are not linked", "/persons/" + itoa(a) + "/parents/" + itoa(b), 404, "parent_link_not_found"},
+		{"parent does not exist", "/persons/" + itoa(b) + "/parents/99999", 404, "person_not_found"},
+		{"child does not exist", "/persons/99999/parents/" + itoa(a), 404, "person_not_found"},
+		{"bad child id", "/persons/abc/parents/" + itoa(a), 400, "invalid_id"},
+		{"bad parent id", "/persons/" + itoa(b) + "/parents/xyz", 400, "invalid_id"},
+		{"zero parent id", "/persons/" + itoa(b) + "/parents/0", 400, "invalid_id"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := send(t, h, "DELETE", tc.path, "", withCookie(c))
+			if rec.Code != tc.wantStatus || !strings.Contains(rec.Body.String(), `"`+tc.wantCode+`"`) {
+				t.Fatalf("got %d %s, want %d %s", rec.Code, rec.Body, tc.wantStatus, tc.wantCode)
+			}
+		})
+	}
+	if n := ancestorCount(t, h, c, b); n != 1 {
+		t.Fatalf("the real link was damaged by the failed requests: %d ancestors", n)
+	}
+}
+
+func TestRemoveParentGuards(t *testing.T) {
+	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
+	p, k := mkPerson(t, h, c, "p"), mkPerson(t, h, c, "k")
+	mkLink(t, h, c, p, k)
+
+	t.Run("requires a session", func(t *testing.T) {
+		rec := send(t, h, "DELETE", "/persons/"+itoa(k)+"/parents/"+itoa(p), "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("got %d %s, want 401", rec.Code, rec.Body)
+		}
+	})
+	t.Run("a foreign origin cannot delete with the victim's cookie", func(t *testing.T) {
+		rec := unlink(t, h, c, k, p, withHeader("Origin", "https://evil.example"))
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "origin_not_allowed") {
+			t.Fatalf("got %d %s, want 403 origin_not_allowed", rec.Code, rec.Body)
+		}
+	})
+	if n := ancestorCount(t, h, c, k); n != 1 {
+		t.Fatalf("a rejected request still removed the link: %d ancestors", n)
+	}
+}
+
+func TestRemoveParentCannotTouchAnotherAccountsTree(t *testing.T) {
+	h, _ := newApp(t)
+	alice, _ := signIn(t, h, "alice@example.com")
+	bob, _ := signIn(t, h, "bob@example.com")
+	bobParent, bobKid := mkPerson(t, h, bob, "bob-parent"), mkPerson(t, h, bob, "bob-kid")
+	mkLink(t, h, bob, bobParent, bobKid)
+	aliceKid := mkPerson(t, h, alice, "alice-kid")
+
+	for name, rec := range map[string]*httptest.ResponseRecorder{
+		"both people are Bob's":             unlink(t, h, alice, bobKid, bobParent),
+		"child is Alice's, parent is Bob's": unlink(t, h, alice, aliceKid, bobParent),
+	} {
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "person_not_found") {
+			t.Errorf("%s: got %d %s, want 404 person_not_found", name, rec.Code, rec.Body)
+		}
+	}
+	if n := ancestorCount(t, h, bob, bobKid); n != 1 {
+		t.Fatalf("Alice removed a link inside Bob's tree: Bob's kid has %d ancestors", n)
 	}
 }

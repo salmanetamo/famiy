@@ -58,6 +58,18 @@ func (r *PgRepository) AddParentLink(ctx context.Context, l ParentLink) error {
 	return fmt.Errorf("insert parent_child: %w", err)
 }
 
+func (r *PgRepository) RemoveParentLink(ctx context.Context, l ParentLink) error {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM parent_child WHERE parent_id = $1 AND child_id = $2`, l.ParentID, l.ChildID)
+	if err != nil {
+		return fmt.Errorf("delete parent_child: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrLinkNotFound
+	}
+	return nil
+}
+
 // ancestorsSQL is PoC-1's Q1. UNION ALL (not UNION) because rows carry a depth
 // column; CYCLE guards against accidental loops; min(depth)+GROUP BY collapses
 // duplicate paths created by diamonds (e.g. cousin marriages).

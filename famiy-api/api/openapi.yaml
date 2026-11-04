@@ -285,6 +285,36 @@ paths:
               example:
                 error: { code: would_create_cycle, message: this parent link would make a person their own ancestor }
 
+  /persons/{id}/parents/{parentId}:
+    delete:
+      summary: Remove a parent from a person
+      description: >
+        Deletes the link between the person in the path (the child) and one of their parents. Both
+        must belong to the signed-in account; a person that is missing or belongs to someone else
+        is reported identically (404 person_not_found). If both are yours but are not linked, the
+        answer is 404 parent_link_not_found, so a repeated DELETE is not silently accepted.
+        Removing a link frees one of the child's two parent slots.
+      operationId: removeParent
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+        - $ref: "#/components/parameters/ParentId"
+      responses:
+        "204":
+          description: The link was removed
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: >
+            A person does not exist or is not yours (person_not_found), or they are not linked
+            (parent_link_not_found)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: parent_link_not_found, message: that person is not a parent of this person }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -308,6 +338,13 @@ components:
       schema: { type: string }
 
   parameters:
+    ParentId:
+      name: parentId
+      in: path
+      required: true
+      description: The id of the parent whose link is removed
+      schema: { type: integer, format: int64, minimum: 1 }
+
     PersonId:
       name: id
       in: path

@@ -363,3 +363,107 @@ func assertAncestors(t *testing.T, got, want []relationship.Ancestor) {
 		}
 	}
 }
+
+func TestRemoveParentLink(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	mum, dad, kid := f.person(t, "mum"), f.person(t, "dad"), f.person(t, "kid")
+	f.link(t, mum, kid)
+	f.link(t, dad, kid)
+
+	remove := func(parent, child int64) error {
+		return f.svc.RemoveParentLink(ctx, f.owner, relationship.ParentLink{ParentID: parent, ChildID: child})
+	}
+
+	t.Run("removes the link and only that link", func(t *testing.T) {
+		if err := remove(mum, kid); err != nil {
+			t.Fatal(err)
+		}
+		got, err := f.svc.Ancestors(ctx, f.owner, kid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertAncestors(t, got, []relationship.Ancestor{{PersonID: dad, Generations: 1}})
+	})
+	t.Run("removing it again reports that there is no such link", func(t *testing.T) {
+		if err := remove(mum, kid); !errors.Is(err, relationship.ErrLinkNotFound) {
+			t.Fatalf("got %v, want ErrLinkNotFound", err)
+		}
+	})
+	t.Run("two people who were never linked", func(t *testing.T) {
+		stranger := f.person(t, "stranger")
+		if err := remove(stranger, kid); !errors.Is(err, relationship.ErrLinkNotFound) {
+			t.Fatalf("got %v, want ErrLinkNotFound", err)
+		}
+	})
+	t.Run("a link cannot be removed in the wrong direction", func(t *testing.T) {
+		if err := remove(kid, dad); !errors.Is(err, relationship.ErrLinkNotFound) {
+			t.Fatalf("got %v, want ErrLinkNotFound", err)
+		}
+	})
+	t.Run("an unknown person is reported as not found", func(t *testing.T) {
+		if err := remove(99999, kid); !errors.Is(err, person.ErrNotFound) {
+			t.Fatalf("got %v, want person.ErrNotFound", err)
+		}
+	})
+	t.Run("removal frees a parent slot", func(t *testing.T) {
+		third := f.person(t, "third")
+		f.link(t, third, kid) // kid had {dad} left, so there is room for a second parent
+		other := f.person(t, "other")
+		if err := f.svc.AddParentLink(ctx, f.owner, relationship.ParentLink{ParentID: other, ChildID: kid}); !errors.Is(err, relationship.ErrTooManyParents) {
+			t.Fatalf("kid should be full, got %v", err)
+		}
+		if err := remove(third, kid); err != nil {
+			t.Fatal(err)
+		}
+		f.link(t, other, kid)
+	})
+}
+
+func TestRemovingALinkCanUnblockAnotherThatWouldHaveBeenACycle(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	a, b, c := f.person(t, "a"), f.person(t, "b"), f.person(t, "c")
+	f.link(t, a, b)
+	f.link(t, b, c)
+
+	loop := relationship.ParentLink{ParentID: c, ChildID: a} // c as a's parent closes a -> b -> c -> a
+	if err := f.svc.AddParentLink(ctx, f.owner, loop); !errors.Is(err, relationship.ErrCycle) {
+		t.Fatalf("got %v, want ErrCycle", err)
+	}
+	if err := f.svc.RemoveParentLink(ctx, f.owner, relationship.ParentLink{ParentID: a, ChildID: b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.AddParentLink(ctx, f.owner, loop); err != nil {
+		t.Fatalf("link should be allowed once the chain is broken: %v", err)
+	}
+}
+
+// Like linking, removal inside another account's tree is stopped only by the
+// service's ownership check: the database has no objection to a DELETE.
+func TestRemoveParentLinkCannotTouchAnotherAccountsTree(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	bob := testdb.InsertUser(t, f.pool, "bob@example.com")
+	p, err := f.persons.Create(ctx, bob, person.Input{GivenName: "bob-parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := f.persons.Create(ctx, bob, person.Input{GivenName: "bob-kid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.AddParentLink(ctx, bob, relationship.ParentLink{ParentID: p.ID, ChildID: k.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.svc.RemoveParentLink(ctx, f.owner, relationship.ParentLink{ParentID: p.ID, ChildID: k.ID})
+	if !errors.Is(err, person.ErrNotFound) {
+		t.Fatalf("got %v, want person.ErrNotFound", err)
+	}
+	got, err := f.svc.Ancestors(ctx, bob, k.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAncestors(t, got, []relationship.Ancestor{{PersonID: p.ID, Generations: 1}})
+}

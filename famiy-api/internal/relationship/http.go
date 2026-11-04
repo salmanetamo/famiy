@@ -21,6 +21,7 @@ func NewHandler(svc *Service, owner httpx.OwnerFunc) *Handler {
 func (h *Handler) Routes(r chi.Router) {
 	r.Get("/persons/{id}/ancestors", h.ancestors)
 	r.Post("/persons/{id}/parents", h.addParent)
+	r.Delete("/persons/{id}/parents/{parentId}", h.removeParent)
 }
 
 // addParentRequest and parentLinkResponse are the wire format of a parent link.
@@ -60,6 +61,30 @@ func (h *Handler) addParent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, r, http.StatusCreated, parentLinkResponse{ChildID: childID, ParentID: req.ParentID})
+}
+
+// removeParent deletes the link between the person in the path and one of their
+// parents. 204 with no body on success.
+func (h *Handler) removeParent(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	childID, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	parentID, err := httpx.PathParamID(r, "parentId")
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := h.svc.RemoveParentLink(r.Context(), ownerID, ParentLink{ParentID: parentID, ChildID: childID}); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type ancestorResponse struct {

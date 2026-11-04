@@ -12,6 +12,7 @@ var (
 	ErrSelfParent      = apperr.Invalid("self_parent", "a person cannot be their own parent")
 	ErrTooManyParents  = apperr.Conflict("too_many_parents", "a person can have at most two parents")
 	ErrDuplicateParent = apperr.Conflict("duplicate_parent", "this parent link already exists")
+	ErrLinkNotFound    = apperr.NotFound("parent_link_not_found", "that person is not a parent of this person")
 	ErrCycle           = apperr.Conflict("would_create_cycle", "this parent link would make a person their own ancestor")
 	ErrPersonMissing   = person.ErrNotFound // one value, so errors.Is works from any layer
 )

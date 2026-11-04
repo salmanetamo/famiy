@@ -126,10 +126,13 @@ func RequireOwner(w http.ResponseWriter, r *http.Request, owner OwnerFunc) (int6
 }
 
 // PathID parses the {id} URL parameter as a positive int64.
-func PathID(r *http.Request) (int64, error) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+func PathID(r *http.Request) (int64, error) { return PathParamID(r, "id") }
+
+// PathParamID parses the named URL parameter as a positive int64.
+func PathParamID(r *http.Request, name string) (int64, error) {
+	id, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
 	if err != nil || id <= 0 {
-		return 0, apperr.Invalid("invalid_id", "id must be a positive integer")
+		return 0, apperr.Invalid("invalid_id", name+" must be a positive integer")
 	}
 	return id, nil
 }
