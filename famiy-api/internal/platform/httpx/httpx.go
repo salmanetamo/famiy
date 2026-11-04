@@ -3,6 +3,7 @@
 package httpx
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +104,21 @@ func decodeError(err error) error {
 		return apperr.Invalid("invalid_json", "unknown field "+field)
 	}
 	return apperr.Invalid("invalid_json", "request body is not valid JSON")
+}
+
+// OwnerFunc returns the authenticated account for a request. Handlers receive
+// it by injection so feature modules do not depend on the identity module.
+type OwnerFunc func(ctx context.Context) (ownerID int64, ok bool)
+
+// RequireOwner returns the authenticated account id, or writes a 401 and
+// reports false. The auth middleware should already have rejected anonymous
+// requests, so this is a second line of defence.
+func RequireOwner(w http.ResponseWriter, r *http.Request, owner OwnerFunc) (int64, bool) {
+	id, ok := owner(r.Context())
+	if !ok {
+		Error(w, r, apperr.Unauthenticated("unauthenticated", "authentication required"))
+	}
+	return id, ok
 }
 
 // PathID parses the {id} URL parameter as a positive int64.

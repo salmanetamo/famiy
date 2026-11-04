@@ -1,7 +1,7 @@
 # Data Model — Family Graph
 
 _Last updated: 2026-11-02. Source of truth: `famiy-api/migrations/`. This page explains it;
-if they disagree, the migrations win. Schema version: `000003_auth`._
+if they disagree, the migrations win. Schema version: `000004_person_owner`._
 
 ## Principles (ADR-001)
 - Kinship is a **DAG**, not a tree: a person has up to two parents.
@@ -14,6 +14,7 @@ if they disagree, the migrations win. Schema version: `000003_auth`._
 | Column | Type | Notes |
 |---|---|---|
 | `id` | bigint identity, PK | |
+| `owner_user_id` | bigint, not null, FK `app_user` `ON DELETE RESTRICT` | the account that owns the person; **immutable** (trigger); an account that owns people cannot be deleted |
 | `given_name` | text, not null | not blank, ≤ 200 characters (CHECK) |
 | `family_name` | text, null | ≤ 200 characters (CHECK) |
 | `birth_date` | date, null | ≥ 1000-01-01 (CHECK); the domain also rejects future dates |
@@ -31,8 +32,9 @@ expires_at)` — PK is the **SHA-256 of the session token** (exactly 32 bytes, C
 database never holds a usable token; rows cascade-delete with their user and expired rows
 are ignored on lookup and purged on login. Account creation is serialised by an advisory
 lock so `MAX_USERS` cannot be exceeded under concurrent signups.
-**Not yet linked to `person`:** `person.owner_user_id` and the `same_owner` link rule are
-the next slice, so until then every person is visible to every caller.
+Every `person` belongs to exactly one `app_user` (`owner_user_id`). The API scopes every
+read and write to the signed-in account and reports another account's person as 404, the same
+as a missing one.
 
 ### `parent_child` (the atomic kinship edge)
 `(parent_id, child_id)` — composite PK, both FKs to `person` with `ON DELETE CASCADE`.
@@ -52,6 +54,8 @@ Schema exists; **no API yet**.
 | Both ends exist | FKs | → `person_not_found` |
 | **At most two parents per child** | `BEFORE INSERT` trigger `trg_parent_link_rules` (constraint name `max_two_parents`) | → `too_many_parents` (409) |
 | **Acyclic** (nobody is their own ancestor) | same trigger (constraint name `no_cycle`) | → `would_create_cycle` (409) |
+| **Both ends of a link have the same owner** | same trigger (`same_owner`); `trg_partnership_same_owner` for partnerships | service checks both persons are the caller's → `person_not_found` (404); a DB-level hit is also reported as `person_not_found` so existence never leaks |
+| Ownership never changes | `trg_person_owner_immutable` (`owner_immutable`) | n/a |
 | Partnership stored once, canonically | `CHECK (partner_a < partner_b)` + PK | planned |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |
 | Given name not blank / names ≤ 200 chars / dates ≥ 1000-01-01 | `CHECK` | `person.New` → `validation_failed` |
@@ -68,7 +72,8 @@ rules that depend on other rows. Differences from PoC-1's version, all covered b
 3. **It steps aside for an exact duplicate edge and for a self-link**, so the primary key and
    the `no_self_parent` CHECK report "already exists" / "self parent" instead of a misleading
    "too many parents".
-4. **Each rule raises with a `CONSTRAINT` name** (`max_two_parents`, `no_cycle`), and the
+4. **Each rule raises with a `CONSTRAINT` name** (`same_owner`, `max_two_parents`,
+   `no_cycle`), checked in that order, and the
    application maps on that name, never on message text.
 
 The concurrency tests (two-parent limit across 15 children; 25 opposing `A→B`/`B→A` pairs)
@@ -89,5 +94,8 @@ only: edges are inserted or deleted, never updated (a table comment says so).
 ## Known gaps
 - Acyclicity is enforced on insert. Deleting an edge cannot create a cycle, so no check is
   needed there; the CTE keeps its `CYCLE` clause as defence in depth.
-- No ownership/tenant column: single-owner trees depend on the pending authentication decision.
+- Ownership is per account (`owner_user_id`), not per tree. When collaboration or trees arrive
+  this becomes a `tree` / `tree_member` model and persons are re-keyed (ADR-004 Consequences).
+- `000004` adds a `NOT NULL` column and fails if `person` already has rows. Once real data
+  exists, any similar change needs a backfill migration.
 - Privacy of living relatives' data is an open product question (`01—PRODUCT_REQUIREMENTS.md`).

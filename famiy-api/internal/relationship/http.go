@@ -9,11 +9,12 @@ import (
 )
 
 type Handler struct {
-	svc *Service
+	svc   *Service
+	owner httpx.OwnerFunc
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, owner httpx.OwnerFunc) *Handler {
+	return &Handler{svc: svc, owner: owner}
 }
 
 func (h *Handler) Routes(r chi.Router) {
@@ -31,12 +32,16 @@ type ancestorsResponse struct {
 }
 
 func (h *Handler) ancestors(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
 	id, err := httpx.PathID(r)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	as, err := h.svc.Ancestors(r.Context(), id)
+	as, err := h.svc.Ancestors(r.Context(), ownerID, id)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

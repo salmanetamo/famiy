@@ -14,9 +14,10 @@ type Repository interface {
 	Ancestors(ctx context.Context, personID int64) ([]Ancestor, error)
 }
 
-// PersonLookup is the part of person.Service this module needs.
+// PersonLookup is the part of person.Service this module needs. Get must report
+// person.ErrNotFound for a person that is missing OR owned by someone else.
 type PersonLookup interface {
-	Get(ctx context.Context, id int64) (person.Person, error)
+	Get(ctx context.Context, ownerID, id int64) (person.Person, error)
 }
 
 type Service struct {
@@ -28,9 +29,17 @@ func NewService(repo Repository, persons PersonLookup) *Service {
 	return &Service{repo: repo, persons: persons}
 }
 
-func (s *Service) AddParentLink(ctx context.Context, l ParentLink) error {
+// AddParentLink links two of ownerID's persons. A person that is missing or
+// belongs to someone else is reported as person.ErrNotFound; the database also
+// refuses cross-owner links (same_owner) as a backstop.
+func (s *Service) AddParentLink(ctx context.Context, ownerID int64, l ParentLink) error {
 	if err := l.Validate(); err != nil {
 		return err
+	}
+	for _, id := range [...]int64{l.ParentID, l.ChildID} {
+		if _, err := s.persons.Get(ctx, ownerID, id); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.AddParentLink(ctx, l); err != nil {
 		return fmt.Errorf("add parent link %d->%d: %w", l.ParentID, l.ChildID, err)
@@ -38,9 +47,10 @@ func (s *Service) AddParentLink(ctx context.Context, l ParentLink) error {
 	return nil
 }
 
-// Ancestors returns all ancestors of personID, nearest generation first.
-func (s *Service) Ancestors(ctx context.Context, personID int64) ([]Ancestor, error) {
-	if _, err := s.persons.Get(ctx, personID); err != nil {
+// Ancestors returns all ancestors of one of ownerID's persons, nearest
+// generation first. Links never cross owners, so every ancestor is theirs too.
+func (s *Service) Ancestors(ctx context.Context, ownerID, personID int64) ([]Ancestor, error) {
+	if _, err := s.persons.Get(ctx, ownerID, personID); err != nil {
 		return nil, err
 	}
 	as, err := s.repo.Ancestors(ctx, personID)

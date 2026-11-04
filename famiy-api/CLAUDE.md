@@ -31,7 +31,9 @@ count grows into dozens, which would then warrant an ADR). Router is chi; config
 is stored), argon2id passwords (OWASP minimum, checked 2026-11-03), failed-login limiter,
 `RequireAuth` middleware. Settings: `REGISTRATION_ENABLED` (code default **false**), `MAX_USERS`,
 `SESSION_TTL`, `COOKIE_SECURE` (code default **true**), `ALLOWED_ORIGINS`, `TRUSTED_PROXIES`.
-Never log passwords, tokens or emails; log user ids. Unsafe requests must be JSON and pass the
+Never log passwords, tokens or emails; log user ids. Every person belongs to one account
+(`person.owner_user_id`): services take `ownerID` as an explicit parameter, repositories filter by
+it, another account's data is reported as **404** (never 403), and links must stay within one owner. Unsafe requests must be JSON and pass the
 Origin check (both global middleware).
 
 ## Skills and agents

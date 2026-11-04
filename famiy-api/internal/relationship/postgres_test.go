@@ -15,6 +15,7 @@ import (
 )
 
 type fixture struct {
+	owner   int64 // the account that owns every person the helpers create
 	pool    *pgxpool.Pool
 	persons *person.Service
 	repo    *relationship.PgRepository
@@ -26,12 +27,12 @@ func newFixture(t *testing.T) fixture {
 	pool := testdb.New(t)
 	persons := person.NewService(person.NewPgRepository(pool))
 	repo := relationship.NewPgRepository(pool)
-	return fixture{pool, persons, repo, relationship.NewService(repo, persons)}
+	return fixture{testdb.InsertUser(t, pool, "owner@example.com"), pool, persons, repo, relationship.NewService(repo, persons)}
 }
 
 func (f fixture) person(t *testing.T, name string) int64 {
 	t.Helper()
-	p, err := f.persons.Create(context.Background(), person.Input{GivenName: name})
+	p, err := f.persons.Create(context.Background(), f.owner, person.Input{GivenName: name})
 	if err != nil {
 		t.Fatalf("create %s: %v", name, err)
 	}
@@ -40,7 +41,7 @@ func (f fixture) person(t *testing.T, name string) int64 {
 
 func (f fixture) link(t *testing.T, parent, child int64) {
 	t.Helper()
-	if err := f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: parent, ChildID: child}); err != nil {
+	if err := f.svc.AddParentLink(context.Background(), f.owner, relationship.ParentLink{ParentID: parent, ChildID: child}); err != nil {
 		t.Fatalf("link %d->%d: %v", parent, child, err)
 	}
 }
@@ -51,7 +52,7 @@ func TestAncestorsChain(t *testing.T) {
 	f.link(t, grand, parent)
 	f.link(t, parent, child)
 
-	got, err := f.svc.Ancestors(context.Background(), child)
+	got, err := f.svc.Ancestors(context.Background(), f.owner, child)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +79,7 @@ func TestAncestorsDiamondCollapsesDuplicatePaths(t *testing.T) {
 	f.link(t, x, c)
 	f.link(t, y, c)
 
-	got, err := f.svc.Ancestors(context.Background(), c)
+	got, err := f.svc.Ancestors(context.Background(), f.owner, c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestAncestorsDiamondCollapsesDuplicatePaths(t *testing.T) {
 func TestAncestorsNoParentsIsEmptyNotNil(t *testing.T) {
 	f := newFixture(t)
 	id := f.person(t, "orphan")
-	got, err := f.svc.Ancestors(context.Background(), id)
+	got, err := f.svc.Ancestors(context.Background(), f.owner, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestAncestorsNoParentsIsEmptyNotNil(t *testing.T) {
 
 func TestAncestorsUnknownPerson(t *testing.T) {
 	f := newFixture(t)
-	_, err := f.svc.Ancestors(context.Background(), 12345)
+	_, err := f.svc.Ancestors(context.Background(), f.owner, 12345)
 	if !errors.Is(err, person.ErrNotFound) {
 		t.Fatalf("want person.ErrNotFound, got %v", err)
 	}
@@ -128,14 +129,14 @@ func TestAddParentLinkConstraints(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := f.svc.AddParentLink(context.Background(), tc.link); !errors.Is(err, tc.want) {
+			if err := f.svc.AddParentLink(context.Background(), f.owner, tc.link); !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
 		})
 	}
 
 	t.Run("self parent rejected by domain", func(t *testing.T) {
-		err := f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: a, ChildID: a})
+		err := f.svc.AddParentLink(context.Background(), f.owner, relationship.ParentLink{ParentID: a, ChildID: a})
 		if !errors.Is(err, relationship.ErrSelfParent) {
 			t.Fatalf("got %v", err)
 		}
@@ -173,7 +174,7 @@ func TestTwoParentLimitHoldsUnderConcurrency(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				<-start
-				errs[ci][pi] = f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: parent, ChildID: child})
+				errs[ci][pi] = f.svc.AddParentLink(context.Background(), f.owner, relationship.ParentLink{ParentID: parent, ChildID: child})
 			}()
 		}
 	}
@@ -220,7 +221,7 @@ func TestAddParentLinkRejectsCycles(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := f.svc.AddParentLink(context.Background(), tc.link)
+			err := f.svc.AddParentLink(context.Background(), f.owner, tc.link)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
@@ -249,12 +250,12 @@ func TestOpposingLinksCannotBothCommit(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			forward[i] = f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: p.x, ChildID: p.y})
+			forward[i] = f.svc.AddParentLink(context.Background(), f.owner, relationship.ParentLink{ParentID: p.x, ChildID: p.y})
 		}()
 		go func() {
 			defer wg.Done()
 			<-start
-			backward[i] = f.svc.AddParentLink(context.Background(), relationship.ParentLink{ParentID: p.y, ChildID: p.x})
+			backward[i] = f.svc.AddParentLink(context.Background(), f.owner, relationship.ParentLink{ParentID: p.y, ChildID: p.x})
 		}()
 	}
 	close(start)
@@ -283,6 +284,55 @@ func TestOpposingLinksCannotBothCommit(t *testing.T) {
 			t.Errorf("pair %d: %d edges stored, want exactly 1", i, n)
 		}
 	}
+}
+
+func TestLinksCannotCrossOwners(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	bob := testdb.InsertUser(t, f.pool, "bob@example.com")
+	mine := f.person(t, "mine")
+	other, err := f.persons.Create(ctx, bob, person.Input{GivenName: "theirs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs := other.ID
+
+	t.Run("the service treats another account's person as not found, in both directions", func(t *testing.T) {
+		for _, l := range []relationship.ParentLink{{ParentID: mine, ChildID: theirs}, {ParentID: theirs, ChildID: mine}} {
+			if err := f.svc.AddParentLink(ctx, f.owner, l); !errors.Is(err, person.ErrNotFound) {
+				t.Errorf("%+v: got %v, want person.ErrNotFound", l, err)
+			}
+		}
+	})
+	t.Run("the database refuses it even if the service is bypassed", func(t *testing.T) {
+		for _, l := range []relationship.ParentLink{{ParentID: mine, ChildID: theirs}, {ParentID: theirs, ChildID: mine}} {
+			if err := f.repo.AddParentLink(ctx, l); !errors.Is(err, relationship.ErrPersonMissing) {
+				t.Errorf("%+v: got %v, want ErrPersonMissing", l, err)
+			}
+		}
+		var n int
+		if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM parent_child`).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("%d edges stored (err %v), want 0", n, err)
+		}
+	})
+	t.Run("ancestors of another account's person is not found", func(t *testing.T) {
+		if _, err := f.svc.Ancestors(ctx, f.owner, theirs); !errors.Is(err, person.ErrNotFound) {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("partnerships cannot cross owners either", func(t *testing.T) {
+		a, b := min(mine, theirs), max(mine, theirs)
+		if _, err := f.pool.Exec(ctx, `INSERT INTO partnership (partner_a, partner_b) VALUES ($1, $2)`, a, b); err == nil {
+			t.Fatal("cross-owner partnership was accepted")
+		}
+	})
+	t.Run("same-owner partnerships still work", func(t *testing.T) {
+		second := f.person(t, "second")
+		a, b := min(mine, second), max(mine, second)
+		if _, err := f.pool.Exec(ctx, `INSERT INTO partnership (partner_a, partner_b) VALUES ($1, $2)`, a, b); err != nil {
+			t.Fatalf("same-owner partnership rejected: %v", err)
+		}
+	})
 }
 
 func assertAncestors(t *testing.T, got, want []relationship.Ancestor) {

@@ -90,3 +90,17 @@ func migrate(t *testing.T, pool *pgxpool.Pool) {
 		}
 	}
 }
+
+// InsertUser creates an account row directly (bypassing the identity service and
+// its password hashing) and returns its id, for tests that only need an owner.
+func InsertUser(t *testing.T, pool *pgxpool.Pool, email string) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO app_user (email, password_hash) VALUES ($1, '$argon2id$test-fixture-not-verifiable') RETURNING id`,
+		email).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert test user %s: %v", email, err)
+	}
+	return id
+}

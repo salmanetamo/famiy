@@ -67,9 +67,19 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) (http.Handler, Services, error) {
 		httpx.OriginCheck(cfg.AllowedOrigins...), httpx.RequireJSON)
 
 	r.Get("/healthz", healthz(pool))
-	identity.NewHandler(identSvc, cfg.Handler).Routes(r)
-	person.NewHandler(personSvc).Routes(r)
-	relationship.NewHandler(relSvc).Routes(r)
+	identHandler := identity.NewHandler(identSvc, cfg.Handler)
+	identHandler.Routes(r)
+
+	// Everything below requires a signed-in account and is scoped to it.
+	owner := func(ctx context.Context) (int64, bool) {
+		u, ok := identity.UserFromContext(ctx)
+		return u.ID, ok
+	}
+	r.Group(func(r chi.Router) {
+		r.Use(identHandler.RequireAuth)
+		person.NewHandler(personSvc, owner).Routes(r)
+		relationship.NewHandler(relSvc, owner).Routes(r)
+	})
 
 	return r, Services{Persons: personSvc, Relationships: relSvc, Identity: identSvc}, nil
 }

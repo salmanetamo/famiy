@@ -3,14 +3,17 @@
 // genealogical distance are derived, never stored (ADR-001).
 package relationship
 
-import "github.com/salmanetamo/famiy/famiy-api/internal/platform/apperr"
+import (
+	"github.com/salmanetamo/famiy/famiy-api/internal/person"
+	"github.com/salmanetamo/famiy/famiy-api/internal/platform/apperr"
+)
 
 var (
 	ErrSelfParent      = apperr.Invalid("self_parent", "a person cannot be their own parent")
 	ErrTooManyParents  = apperr.Conflict("too_many_parents", "a person can have at most two parents")
 	ErrDuplicateParent = apperr.Conflict("duplicate_parent", "this parent link already exists")
 	ErrCycle           = apperr.Conflict("would_create_cycle", "this parent link would make a person their own ancestor")
-	ErrPersonMissing   = apperr.NotFound("person_not_found", "person not found")
+	ErrPersonMissing   = person.ErrNotFound // one value, so errors.Is works from any layer
 )
 
 // ParentLink is the atomic kinship edge.

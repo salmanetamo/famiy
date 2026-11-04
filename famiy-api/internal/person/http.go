@@ -14,11 +14,12 @@ import (
 const dateLayout = "2006-01-02"
 
 type Handler struct {
-	svc *Service
+	svc   *Service
+	owner httpx.OwnerFunc
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, owner httpx.OwnerFunc) *Handler {
+	return &Handler{svc: svc, owner: owner}
 }
 
 func (h *Handler) Routes(r chi.Router) {
@@ -47,6 +48,10 @@ type personResponse struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
 	var req createRequest
 	if err := httpx.Decode(w, r, &req); err != nil {
 		httpx.Error(w, r, err)
@@ -62,7 +67,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, r, err)
 		return
 	}
-	p, err := h.svc.Create(r.Context(), Input{
+	p, err := h.svc.Create(r.Context(), ownerID, Input{
 		GivenName:   req.GivenName,
 		FamilyName:  req.FamilyName,
 		BirthDate:   birth,
@@ -78,12 +83,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
 	id, err := httpx.PathID(r)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
-	p, err := h.svc.Get(r.Context(), id)
+	p, err := h.svc.Get(r.Context(), ownerID, id)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return

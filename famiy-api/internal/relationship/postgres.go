@@ -48,6 +48,10 @@ func (r *PgRepository) AddParentLink(ctx context.Context, l ParentLink) error {
 				return ErrTooManyParents
 			case "no_cycle":
 				return ErrCycle
+			case "same_owner":
+				// Reported as "not found" so a caller cannot learn that the
+				// other person exists under another account.
+				return ErrPersonMissing
 			}
 		}
 	}

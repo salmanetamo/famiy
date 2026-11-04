@@ -18,13 +18,7 @@ import (
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
+	return send(t, h, method, path, body)
 }
 
 // testConfig opens registration and uses minimal argon2 cost so tests are fast.
@@ -47,6 +41,16 @@ func newApp(t *testing.T) (http.Handler, app.Services) {
 		t.Fatal(err)
 	}
 	return h, svcs
+}
+
+// signIn registers an account over HTTP and returns its session cookie and id.
+func signIn(t *testing.T, h http.Handler, email string) (*http.Cookie, int64) {
+	t.Helper()
+	rec := send(t, h, "POST", "/auth/register", creds(email, pw))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register %s: %d %s", email, rec.Code, rec.Body)
+	}
+	return sessionCookie(t, rec), int64(decode(t, rec)["id"].(float64))
 }
 
 func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
@@ -84,17 +88,36 @@ func TestHealthzReportsDatabaseDown(t *testing.T) {
 
 func TestResponsesCarryRequestID(t *testing.T) {
 	h, _ := newApp(t)
-	rec := do(t, h, http.MethodGet, "/persons/4242", "") // an error response
+	rec := do(t, h, http.MethodGet, "/persons/4242", "") // an error response (401)
 	if rec.Header().Get("X-Request-Id") == "" {
 		t.Fatal("X-Request-Id header missing")
 	}
 }
 
+func TestPersonRoutesRequireASession(t *testing.T) {
+	h, _ := newApp(t)
+	bogus := &http.Cookie{Name: "famiy_session", Value: "not-a-real-token"}
+	routes := []struct{ method, path, body string }{
+		{"POST", "/persons", `{"given_name":"A"}`},
+		{"GET", "/persons/1", ""},
+		{"GET", "/persons/1/ancestors", ""},
+	}
+	for _, rt := range routes {
+		for name, opts := range map[string][]reqOpt{"no cookie": nil, "bogus cookie": {withCookie(bogus)}} {
+			rec := send(t, h, rt.method, rt.path, rt.body, opts...)
+			if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"unauthenticated"`) {
+				t.Errorf("%s %s (%s): got %d %s, want 401 unauthenticated", rt.method, rt.path, name, rec.Code, rec.Body)
+			}
+		}
+	}
+}
+
 func TestCreateAndGetPerson(t *testing.T) {
 	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
 
-	rec := do(t, h, http.MethodPost, "/persons",
-		`{"given_name":"  Ada ","family_name":"Lovelace","birth_date":"1815-12-10","birth_approx":true}`)
+	rec := send(t, h, http.MethodPost, "/persons",
+		`{"given_name":"  Ada ","family_name":"Lovelace","birth_date":"1815-12-10","birth_approx":true}`, withCookie(c))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body %s", rec.Code, rec.Body)
 	}
@@ -106,8 +129,11 @@ func TestCreateAndGetPerson(t *testing.T) {
 	if created["given_name"] != "Ada" || created["birth_date"] != "1815-12-10" || created["birth_approx"] != true {
 		t.Errorf("unexpected body: %v", created)
 	}
+	if _, leaked := created["owner_user_id"]; leaked {
+		t.Error("response exposes owner_user_id")
+	}
 
-	rec = do(t, h, http.MethodGet, "/persons/"+itoa(id), "")
+	rec = send(t, h, http.MethodGet, "/persons/"+itoa(id), "", withCookie(c))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get status = %d", rec.Code)
 	}
@@ -119,8 +145,33 @@ func TestCreateAndGetPerson(t *testing.T) {
 	}
 }
 
+func TestAccountsCannotSeeEachOthersPeople(t *testing.T) {
+	h, _ := newApp(t)
+	alice, _ := signIn(t, h, "alice@example.com")
+	bob, _ := signIn(t, h, "bob@example.com")
+
+	rec := send(t, h, "POST", "/persons", `{"given_name":"Ada"}`, withCookie(alice))
+	id := itoa(int64(decode(t, rec)["id"].(float64)))
+
+	for _, path := range []string{"/persons/" + id, "/persons/" + id + "/ancestors"} {
+		other := send(t, h, "GET", path, "", withCookie(bob))
+		missing := send(t, h, "GET", strings.Replace(path, id, "424242", 1), "", withCookie(bob))
+		if other.Code != http.StatusNotFound || !strings.Contains(other.Body.String(), "person_not_found") {
+			t.Errorf("%s as another account: %d %s, want 404 person_not_found", path, other.Code, other.Body)
+		}
+		// Indistinguishable from a person that does not exist at all.
+		if other.Body.String() != missing.Body.String() {
+			t.Errorf("%s: other-owner and missing responses differ:\n%s\n%s", path, other.Body, missing.Body)
+		}
+		if mine := send(t, h, "GET", path, "", withCookie(alice)); mine.Code != http.StatusOK {
+			t.Errorf("%s as the owner: %d", path, mine.Code)
+		}
+	}
+}
+
 func TestPersonErrors(t *testing.T) {
 	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
 	tests := []struct {
 		name, method, path, body string
 		wantStatus               int
@@ -145,7 +196,7 @@ func TestPersonErrors(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := do(t, h, tc.method, tc.path, tc.body)
+			rec := send(t, h, tc.method, tc.path, tc.body, withCookie(c))
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tc.wantStatus, rec.Body)
 			}
@@ -159,9 +210,10 @@ func TestPersonErrors(t *testing.T) {
 
 func TestAncestorsEndpoint(t *testing.T) {
 	h, svcs := newApp(t)
+	c, owner := signIn(t, h, "ada@example.com")
 	ids := map[string]int64{}
 	for _, n := range []string{"grand", "parent", "child"} {
-		rec := do(t, h, http.MethodPost, "/persons", `{"given_name":"`+n+`"}`)
+		rec := send(t, h, http.MethodPost, "/persons", `{"given_name":"`+n+`"}`, withCookie(c))
 		ids[n] = int64(decode(t, rec)["id"].(float64))
 	}
 	ctx := context.Background()
@@ -169,12 +221,12 @@ func TestAncestorsEndpoint(t *testing.T) {
 		{ParentID: ids["grand"], ChildID: ids["parent"]},
 		{ParentID: ids["parent"], ChildID: ids["child"]},
 	} {
-		if err := svcs.Relationships.AddParentLink(ctx, l); err != nil {
+		if err := svcs.Relationships.AddParentLink(ctx, owner, l); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	rec := do(t, h, http.MethodGet, "/persons/"+itoa(ids["child"])+"/ancestors", "")
+	rec := send(t, h, http.MethodGet, "/persons/"+itoa(ids["child"])+"/ancestors", "", withCookie(c))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body)
 	}

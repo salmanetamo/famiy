@@ -287,9 +287,10 @@ a new ADR. Router: `chi`; migrations: `golang-migrate`.
 ### ADR-004: Authentication and data ownership
 **Date:** 2026-11-03
 **Status:** **Accepted 2026-11-03** (owner approved). Implementation in progress, in three
-slices: (1) auth tables + `identity` module — **done, tested**; (2) protect the persons
-routes with the session middleware, add the ownership column and `same_owner` rule —
-pending; (3) OpenAPI security scheme and docs — pending. Nothing is deployed.
+slices: (1) auth tables + `identity` module — **done, tested**; (2) persons/relationship
+routes behind the session middleware, `person.owner_user_id`, `same_owner` rule — **done,
+tested**; (3) OpenAPI security scheme and docs — **done**, pending the owner's `make api-lint`.
+Nothing is deployed.
 
 **Context:**
 The API currently has no notion of a user: every endpoint is public and every person

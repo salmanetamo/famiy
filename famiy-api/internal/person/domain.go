@@ -26,6 +26,7 @@ var ErrNotFound = apperr.NotFound("person_not_found", "person not found")
 // Person is a node in the family graph. Dates are calendar dates (UTC midnight).
 type Person struct {
 	ID          int64
+	OwnerID     int64 // the account that owns this person; set by the repository
 	GivenName   string
 	FamilyName  *string
 	BirthDate   *time.Time
@@ -44,7 +45,7 @@ type Input struct {
 }
 
 // New validates in and returns a Person ready to persist (ID and CreatedAt are
-// assigned by the repository). now is the caller's clock, used to reject dates
+// assigned by the repository, which also records the owner). now is the caller's clock, used to reject dates
 // in the future; one day of slack covers clients ahead of UTC.
 func New(in Input, now time.Time) (Person, error) {
 	var problems []string

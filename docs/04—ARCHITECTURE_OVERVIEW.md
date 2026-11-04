@@ -1,6 +1,6 @@
 # Architecture Overview — Family Graph
 
-_Last updated: 2026-11-01. Describes what is **implemented** in `famiy-api/` unless marked
+_Last updated: 2026-11-04. Describes what is **implemented** in `famiy-api/` unless marked
 **planned**. Decisions and their evidence live in `02—ARCHITECTURE_DECISIONS.md`._
 
 ## Shape
@@ -14,6 +14,9 @@ flowchart LR
     subgraph api["famiy-api (Go, one binary)"]
         direction TB
         router["internal/app<br/>router + /healthz<br/>(composition root)"]
+        subgraph ident["internal/identity"]
+            ih["http.go<br/>RequireAuth"] --> is["service.go<br/>password · limiter"] --> ir["postgres.go"]
+        end
         subgraph person["internal/person"]
             ph["http.go"] --> ps["service.go<br/>domain.go"] --> pr["postgres.go"]
         end
@@ -21,22 +24,25 @@ flowchart LR
             rh["http.go"] --> rs["service.go<br/>domain.go"] --> rr["postgres.go<br/>(ancestors CTE)"]
         end
         platform["internal/platform<br/>apperr · config · db · httpx · testdb"]
-        router --> ph
-        router --> rh
+        router --> ih
+        router -->|"session required"| ph
+        router -->|"session required"| rh
         rs -. "PersonLookup interface" .-> ps
     end
 
-    pr --> pg[("PostgreSQL 16<br/>person · parent_child · partnership")]
+    pr --> pg[("PostgreSQL 16<br/>app_user · session · person<br/>parent_child · partnership")]
     rr --> pg
+    ir --> pg
 ```
 
 ## Modules and boundaries
 | Module | Owns | Depends on |
 |---|---|---|
-| `internal/person` | Person model, validation, create/get | `platform` |
+| `internal/identity` | Accounts, argon2id passwords, server-side sessions, failed-login limiter, `RequireAuth` (ADR-004) | `platform` |
+| `internal/person` | Person model, validation, create/get, **scoped to an owner** | `platform` |
 | `internal/relationship` | `parent→child` links, invariants, ancestors traversal (partnership edges: **planned**) | `platform`; `person` only through the small `PersonLookup` interface |
 | `internal/platform` | `apperr` (error kinds), `config`, `db` (pgx pool), `httpx` (JSON, error→status mapping, middleware), `testdb` (test helper) | nothing in the app |
-| `internal/app` | Wiring, router, `/healthz` | all modules |
+| `internal/app` | Wiring, router, `/healthz`; puts every non-auth route behind `RequireAuth` and injects "who is calling" into handlers | all modules |
 | `cmd/server` | Process entrypoint: config, logging, pool, graceful shutdown | `app`, `platform` |
 
 ## Rules that keep it simple
@@ -51,12 +57,16 @@ flowchart LR
    trigger constraints are the backstop, and Postgres SQLSTATEs are translated back into
    domain errors.
 5. **Context flows down** from the request to every pgx call.
+6. **Ownership is an explicit parameter, never ambient.** Services take `ownerID`; repositories
+   filter by it; feature modules receive "who is calling" through an injected `httpx.OwnerFunc`
+   and never import `identity`. The database repeats the rule (`same_owner`) as a backstop.
 
 ## Request path (example: `GET /persons/{id}/ancestors`)
-`chi` router → middleware (request id, request log, panic safety net) → `relationship`
-handler (parse id) → `relationship.Service` (confirms the person exists via `PersonLookup`)
-→ `PgRepository.Ancestors` (recursive CTE, ADR-001) → JSON response, or an `apperr` mapped
-by `httpx.Error`.
+`chi` router → middleware (request id, request log, panic safety net, Origin check, JSON-only)
+→ `RequireAuth` (cookie → session → account, else 401) → `relationship` handler (account id
+via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the person exists
+**and belongs to that account** via `PersonLookup`; otherwise 404) → `PgRepository.Ancestors`
+(recursive CTE, ADR-001) → JSON response, or an `apperr` mapped by `httpx.Error`.
 
 ## Runtime and tooling
 - **Local:** `make dev` runs Postgres 16 in Docker (host port 5433) and the API on the host;
@@ -67,6 +77,6 @@ by `httpx.Error`.
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
 ## Not built yet (planned)
-Authentication (undecided), partnership endpoints, person update/delete/search, the
+Email verification and password reset, partnership endpoints, person update/delete/search, the
 `famiy-app` frontend (React + TypeScript; elkjs layout + SVG per ADR-002), photos, residence,
-and a per-tree ownership model.
+and a per-tree ownership model (ownership is per account for now, ADR-004).
