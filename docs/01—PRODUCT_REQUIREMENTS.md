@@ -55,8 +55,8 @@ edge type; siblings are derived (shared parent), never stored. Store relationshi
 - **Privacy and data retention.** MVP posture: trees are private to their owner
   and gated by authentication; granular sharing / ACLs are deferred. Still to
   decide: handling of data about *living* relatives (PII), and any retention
-  policy — revisit before the app holds real third-party data. Auth approach
-  itself is decided in Phase 4.
+  policy — revisit before the app holds real third-party data. The auth approach
+  itself was decided in Phase 4 (ADR-004: cookie sessions, per-account ownership).
 
 ## Definition of done
 A deployed, tested, maintainable application with correct kinship (DAG) modelling

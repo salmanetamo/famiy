@@ -3,40 +3,38 @@
 _Last updated: 2026-11-04_
 
 ## Current phase
-Phase 4 — project setup and foundational infrastructure (**in progress**; the backend
-vertical slice is built and tested, CI/skills/docs are being finished). Phases 1–3 complete.
+**Phase 4 — project setup and foundational infrastructure: complete (2026-11-04).**
+Phases 1–4 are done. Phase 5 is **not yet scoped** (candidates under Next actions).
 
 ## Current milestone
-Backend foundation in `famiy-api/`: Go + Postgres thin vertical slice (create/get person,
-ancestors via recursive CTE, `/healthz`), with migration, tests, Compose, Makefile, CI
-workflow, skills and agent. Remaining Phase 4 items are listed under Next actions.
+The backend foundation is on `main` (PR #1, 13 commits, merged 2026-11-04). The `check` job
+of the `api-ci` workflow — build, vet, golangci-lint, `go test -race` against a Postgres
+service container, and the Docker image build — **succeeded on the final commit** (`00fdf23`,
+2026-11-04, read from GitHub). Nothing is deployed.
 
-## Phase 4 state — proposed / implemented / tested / deployed
-| Item | State |
-|---|---|
-| Repo layout: `famiy-api/` (own Go module), `deploy/`, `docs/`, `pocs/`, `.claude/` | implemented |
-| Local stack: Postgres 16 in Compose (host port 5433), Makefile, `.env.example` | implemented, tested (db up, migrate, test, `make up`) |
-| Migrations `000001_init` (PoC-1 schema) and `000002_integrity_hardening` (name/date CHECKs, single parent-link trigger with acyclicity) | implemented, tested (up → down → up; constraints and trigger covered; applied to a fresh database via `make up`) |
-| `POST /persons`, `GET /persons/{id}`, `GET /persons/{id}/ancestors`, `GET /healthz` | implemented, tested (handler + repo integration tests on real Postgres) |
-| Domain invariants: no self-parent, ≤ 2 parents, no duplicate edge, **no cycles** (all race-safe) | implemented, tested incl. two concurrency tests that fail without the lock (3/3) and pass with it (3/3). Exposed over HTTP by `POST /persons/{id}/parents` (below). |
-| `DELETE /persons/{id}/parents/{parentId}` (remove a parent link; 204, 404 `parent_link_not_found`), built with the `new-endpoint` skill | implemented, tested: removal, repeat removal, wrong direction, never-linked, unknown person, bad ids, 401, foreign-Origin 403; removal frees a parent slot and can un-block a link that would have been a cycle. Mutation checks: skipping the ownership check fails 4 tests incl. Alice-removes-a-link-in-Bob's-tree; reporting a missing link as success fails 3; removing the Origin check fails the CSRF tests. No advisory lock on delete, by design (see the service comment). OpenAPI documents it. |
-| `POST /persons/{id}/parents` (parent-link endpoint), built with the `new-endpoint` skill | implemented, tested: success, ancestors reflect it, 13 error cases (self parent, duplicate, third parent, cycle, missing person on either side, bad ids/bodies), 401 without a session, 4 mixed-account cases, and the same-owner rewiring case (Alice linking two of Bob's people), which only the service's ownership check stops: removing that check fails exactly that test. OpenAPI documents it. |
-| ADR-004 slice 1: migration `000003_auth`, `internal/identity` (register, login, logout, me), argon2id, sessions, failed-login limiter, registration kill switch + user cap, Origin/JSON guards, new config | implemented, tested: unit + integration + HTTP tests; cap test fails 3/3 without its lock (11–15 signups through a cap of 3) and passes 3/3 with it; real server exercised with curl. (Slice 2 below closed the public persons routes.) |
-| ADR-004 slice 2: every persons/relationship route requires a session and is scoped to the signed-in account; `000004_person_owner` (`person.owner_user_id` NOT NULL, immutable; `same_owner` rule on parent links and partnerships) | implemented, tested: other accounts' people are 404 and indistinguishable from missing; mutation checks: dropping the owner filter fails tests in 3 packages, dropping the DB `same_owner` rule fails the bypass test, dropping the middleware fails the authenticated-flow tests (handlers' own owner check still returns 401: defence in depth) |
-| Security-review fixes (ADR-004 amendments): limiter now reserves before verifying; registration throttle (10/h/address), early cap check and separate hash slot; IPv6 /64 + v4-mapped canonicalisation and bounded limiter memory; `__Host-` cookie; ASCII-only emails; `no-store`/`nosniff` headers; `Retry-After`; origin normalisation; startup warnings; partnership UPDATE guard (`000005`) | implemented, tested: the parallel-login test failed before the fix (40 of 40 guesses checked) and passes after; mutation checks: counting nothing fails 5 limiter/HTTP tests, a neutered `000005` fails the cross-owner test, dropping the headers fails the header test. **Not tested:** that a registration flood cannot starve logins (structural: separate hash semaphores) |
-| OpenAPI updated for auth + ownership (cookie security scheme, `/auth/*`, 401s) | tested: `make api-lint` passes after the auth/ownership changes (confirmed by the owner 2026-11-04) |
-| Phase 4 review (`go-reviewer`) findings: cycles, trigger UPDATE hole, unmigrated `make up`, 413/trailing-data/error-text handling, panic double-write, request-id header, name/date bounds, `.dockerignore`, port default | implemented, tested (see below); the reviewer read code only and ran nothing |
-| Lint/vet/build/test (local) | tested: all green |
-| `go test -race` | **not run locally** (no cgo/C compiler on the dev machine); runs in CI only |
-| GitHub Actions workflow `api-ci.yml` | implemented, tested: green run on GitHub Actions (incl. `go test -race`), confirmed by the owner 2026-11-01 |
-| `api/openapi.yaml` | written (hand-maintained, docs-only); tested: `make api-lint` (Redocly 2.72.1) passes, confirmed by the owner 2026-11-01 (`security: []` and `api/redocly.yaml` address its style rules) |
-| Dockerfile / containerised run (`make up`: db → one-shot `migrate` → api) | implemented, tested locally on an existing and on a fresh database; CI now also builds the image (**first CI run of that step pending**) |
-| Skills `run-checks` and agent `go-reviewer` | exercised once each (both worked) |
-| Skill `new-endpoint` | exercised twice (parent-link create and delete); one deviation from its checklist: no `Location` header, because a link has no URL |
-| Skill `new-migration` | written, committed; **not yet exercised** (`000002`-`000005` were done by hand) |
-| Line endings: `.gitattributes` pins LF for Go/SQL/YAML/Makefile/Dockerfile | implemented; fixes `gofmt -l` flagging every file on Windows with `core.autocrlf=true` |
-| Authentication, partnership API, update/delete/search, frontend | not started |
-| Anything deployed to a server | **nothing deployed** |
+## Phase 4 outcome — proposed / implemented / tested / deployed
+Original objective: a Go + Postgres project proven end to end by one thin vertical slice, plus
+repo, tooling, docs and CI scaffolding. All of it was delivered, and the phase went further
+because its open authentication question had to be settled.
+
+| Area | What exists | State |
+|---|---|---|
+| Repo and tooling | Monorepo: `famiy-api/` (own Go module), `deploy/`, `docs/`, `pocs/`, `.claude/`; Makefile; `.env.example`; `.gitattributes` (LF for Go/SQL/YAML/Makefile/Dockerfile, because `core.autocrlf=true` makes `gofmt -l` flag every file on Windows) | implemented, tested |
+| Local stack | Postgres 16 in Compose on host port 5433 (a local Postgres owns 5432); `make up` runs db → one-shot `migrate` service → api | implemented, tested on an existing and on a fresh database |
+| Schema | Migrations `000001`–`000005` (PoC-1 schema; name/date bounds; one parent-link trigger enforcing owner, two-parent limit and acyclicity under an advisory lock; accounts and sessions; `person.owner_user_id`; partnership UPDATE guard). See `DATA_MODEL.md` | implemented, tested (up → down → up; every constraint and trigger exercised; concurrency tests fail without their locks and pass with them) |
+| API | `GET /healthz`; `POST /persons`; `GET /persons/{id}`; `GET /persons/{id}/ancestors` (PoC-1 CTE); `POST /persons/{id}/parents`; `DELETE /persons/{id}/parents/{parentId}`; `POST /auth/register`, `/auth/login`, `/auth/logout`; `GET /auth/me`. Documented in `famiy-api/api/openapi.yaml` | implemented, tested (unit, integration against real Postgres, HTTP-level; `make api-lint` passes, confirmed by the owner) |
+| Authentication and ownership (ADR-004) | Cookie sessions (token stored only as SHA-256), argon2id, failed-login and registration limiters, registration kill switch + `MAX_USERS` cap, Origin and JSON-only guards, `__Host-` cookie, security headers; every person belongs to one account and other accounts' data is reported as 404 | implemented, tested; protections verified by mutation checks (removing each one fails specific tests) |
+| CI | `.github/workflows/api-ci.yml`: build, vet, lint, `go test -race`, image build | implemented, **tested: green on GitHub Actions for the final commit** |
+| Skills and agent | `run-checks`, `new-endpoint` (used for both parent-link endpoints; one deviation: no `Location` header, a link has no URL), agent `go-reviewer` (ran twice and found real issues) | exercised. **`new-migration` has never been used** (migrations `000002`–`000005` were written by hand) |
+| Docs | ADR-004, `04—ARCHITECTURE_OVERVIEW.md`, `DATA_MODEL.md`, `famiy-api/CLAUDE.md`, this file | written and kept current |
+| Deployment | — | **nothing deployed** |
+
+**How the phase's quality evidence was produced.** Two independent `go-reviewer` passes (the
+phase foundation, then the auth and ownership code) plus mutation checks on every protection.
+They found, among others: a concurrency race in PoC-1's two-parent trigger, a lock-ordering
+deadlock in the first cycle check, a login limiter that parallel requests could bypass (40 of 40
+guesses were checked before the fix), and a registration cap that 11–15 concurrent signups
+exceeded without its lock. All are fixed and covered by tests that fail without the fix.
 
 ## Completed
 - Initial product concept documented.
@@ -61,11 +59,7 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
   at 1000. Resolved ADR-002's SVG-vs-Canvas question: **keep SVG** for the MVP,
   with a culling + transform ladder before Canvas. Headless is software-rendered
   (conservative; reconfirm on device). Harness in `poc3-render-bench/`.
-
-- Phase 4 — backend foundation: see "Phase 4 state" above. Notable findings from the
-  tests: PoC-1's two-parent trigger had a concurrency race (fixed with a row lock) and
-  shadowed the duplicate-edge error (fixed); both are covered by tests that fail without
-  the fix. Details in `DATA_MODEL.md`; module layout in `04—ARCHITECTURE_OVERVIEW.md`.
+- Phase 4 — backend foundation, authentication and ownership: see "Phase 4 outcome" above.
 
 ## Decisions confirmed
 - **Scope & constraints:** small scale (hundreds–low thousands of persons per
@@ -77,9 +71,13 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
 - **Visualization & layout (ADR-002):** decoupled layout/render; elkjs `layered`
   + virtual union nodes + couple containers (validated by PoC-2); SVG for the MVP.
 - **Backend (ADR-003):** Go, exposing a REST API. Phase 4 pins: Go 1.27.3, pgx v5.11.0,
-  chi v5.5.0, golang-migrate v4.20.1, golangci-lint v2.15.0 (versions checked 2026-10-30).
+  chi v5.5.0, golang-migrate v4.20.1, golangci-lint v2.15.0, golang.org/x/crypto v0.58.0.
 - **Data access (Phase 4):** raw pgx behind repository interfaces, not sqlc. Revisit (with
-  an ADR-004) if the query count grows into dozens.
+  a new ADR) if the query count grows into dozens.
+- **Authentication and ownership (ADR-004, accepted 2026-11-03, amended 2026-11-04):**
+  server-side cookie sessions, argon2id, per-account ownership (`owner_user_id`), registration
+  open but bounded by a kill switch and a user cap, no tree-scoped routes yet. Owner decisions
+  taken during review: no global per-email login cap; risky settings warn rather than refuse.
 - **Repo shape (Phase 4):** monorepo with `famiy-api/` (Go module
   `github.com/salmanetamo/famiy/famiy-api`) and, later, a sibling `famiy-app/`.
 - **Integration tests (Phase 4):** real Postgres via `TEST_DATABASE_URL` and a throwaway
@@ -88,28 +86,21 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
   the visualization layer).
 
 ## Experiments in progress
-None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
+None.
 
 ## Open questions
-- Traversal *mechanism* — **resolved by PoC-1: plain recursive CTEs** (no Apache
-  AGE / Neo4j needed for performance; AGE optional for the Cypher learning goal).
-- Layout engine — **resolved by PoC-2: adopt elkjs, augmented** (union nodes +
-  couple containers; node duplication deferred as a known lever).
-- Rendering tech — **resolved by PoC-3: SVG** (culling + transform ladder before
-  Canvas; reconfirm FPS on a real device).
-- Final rendering *library* (Cytoscape.js vs. React Flow) — decide in the build
-  phase (DX / graph APIs, not render performance).
+- Final rendering *library* (Cytoscape.js vs. React Flow) — decide when the frontend starts
+  (DX / graph APIs, not render performance).
 - Hosting provider (Hetzner leaning on price/performance) — confirm at deploy time.
-- Authentication approach — **ADR-004 accepted 2026-11-03 and implemented** (slices 1-3, see
-  the Phase 4 table); not deployed. Remaining: email verification / password reset (deferred),
-  and a real-HTTPS check of the `Secure` cookie through Caddy. The ADR is authoritative where
-  it differs from the summary below:
-  server-side sessions (HttpOnly cookie, sessions in Postgres) with email + argon2id
-  password, in a separate `internal/identity` module; registration **open for now**;
-  tree-scoped routes (`/trees/{id}/…`) **deferred** (no `tree` / `tree_member` tables yet).
-  Still to settle in the ADR: how an owner/user relates to persons without a tree table,
-  and the abuse risk of open registration on an internet-facing instance.
-- ~~Write-time acyclicity check for parent links~~ — **resolved** by `000002`.
+- Deploy-time checks that need Caddy and a real host: the `Secure`/`__Host-` cookie over real
+  HTTPS, and the correct `TRUSTED_PROXIES` value (the server warns at startup when it is empty).
+- Email verification and password reset — deferred; until email exists a forgotten password is
+  reset by the operator directly in the database.
+- Privacy and retention of data about living relatives (`01—PRODUCT_REQUIREMENTS.md`) — to
+  decide before the app holds real third-party data.
+- Resolved in earlier phases: traversal mechanism (plain recursive CTEs), layout engine (elkjs,
+  augmented), rendering technology (SVG with a culling + transform ladder), authentication
+  approach (ADR-004).
 
 ## Known issues and risks
 - Layout crossing-minimization is NP-hard; the MVP uses heuristics and accepts
@@ -119,14 +110,42 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
   millisecond). This remains the main lever behind ADR-001's revisit trigger (b).
 - Polyglot repository (Go + TypeScript) adds some tooling/context-switching
   overhead — an accepted cost tied to the learning goal.
+- **Ownership is per account, not per tree.** Collaboration or multiple trees will need a
+  `tree` / `tree_member` model and a re-keying migration, and routes become `/trees/{id}/…`.
+  Because `person.owner_user_id` is `NOT NULL`, any similar change once real data exists needs a
+  backfill migration; `000004` fails on a non-empty `person` table by design.
+- **Per-process state.** The login and registration limiters and the user cap are correct for the
+  single instance this app runs as; running more than one instance needs shared state.
+- **Open registration can be exhausted:** whoever fills `MAX_USERS` closes registration for
+  everyone. The kill switch and cap are the only controls. Account existence is observable
+  through the 409 on registration (accepted in ADR-004).
+- **Writes to `parent_child` are globally serialized** by one advisory lock. Fine for a
+  write-light app; key it by tree if trees arrive.
+- **Not covered by a test:** that a registration flood cannot starve logins (it holds by
+  construction: separate hash semaphores).
+- **`go test -race` cannot run on the Windows dev machine** (no cgo toolchain); CI runs it.
+- Accepted review nits: a failed session insert right after signup leaves an account the client
+  saw as an error; expired sessions are purged at login rather than by a job; the same-origin
+  check compares hosts, not schemes.
+- **API gaps for a client:** no endpoint lists a person's or an account's people or links, no
+  person update/delete/search, no partnership API, and direct parents are readable only through
+  `/ancestors` (generations = 1).
 
 ## Next actions
-1. Finish Phase 4: confirm the first green GitHub Actions run; run the new skills/agent
-   once; decide authentication (recommendation to be presented); close out the phase.
-2. Next slice candidates: partnership
-   API, person update/delete/search, remaining PoC-1 traversals (descendants, siblings,
-   relationship path).
-3. Build-phase decision: rendering library (Cytoscape.js vs. React Flow).
-4. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large
-   trees (PoC-3 ladder); node duplication for the remarried-and-cross-branch
-   layout case (ADR-002 known limitation) — when real data needs them.
+Phase 5 is not scoped. Candidates, with my suggested order:
+1. **A read endpoint for the whole account** (people plus parent links, optionally with
+   search by name). No client can render or navigate a tree without it, and it is the contract
+   the layout service (ADR-002) will consume.
+2. **Person update and delete.** Needs a decision on what deleting a person does to their links
+   (they cascade today) and to the `ON DELETE RESTRICT` ownership rule.
+3. **Partnership API.** Schema and the `same_owner` guard already exist; the layout design
+   (union nodes, couple containers) depends on it.
+4. **Start the frontend** (`famiy-app/`: React + TypeScript), including the rendering-library
+   decision and the layout service from ADR-002.
+5. **Deployment phase:** Caddy and TLS, the VM, a migrate step, `TRUSTED_PROXIES`, backups,
+   and the real-HTTPS cookie check.
+6. Remaining PoC-1 traversals (descendants, siblings, relationship path) when a feature needs
+   them; use the `new-migration` skill for the first schema change so it gets exercised.
+7. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large trees (PoC-3
+   ladder); node duplication for the remarried-and-cross-branch layout case (ADR-002 known
+   limitation) — when real data needs them.

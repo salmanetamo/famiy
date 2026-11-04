@@ -1,8 +1,9 @@
 # Architecture Decisions — Family Graph
 
 ## Current architecture status
-Phase 2 — Architecture and technology evaluation. Core stack decided; two
-sub-decisions deliberately gated on proofs of concept (PoC-1, PoC-2/3).
+Phase 4 complete (2026-11-04). ADR-001 to ADR-004 are accepted. The two sub-decisions
+that were gated on proofs of concept (PoC-1, PoC-2/3) were resolved in Phase 3. ADR-004
+(authentication and ownership) was added and implemented in Phase 4.
 
 ### Decisions at a glance
 | ADR | Area | Decision | Status |
@@ -10,7 +11,7 @@ sub-decisions deliberately gated on proofs of concept (PoC-1, PoC-2/3).
 | 001 | Database | PostgreSQL as single store; recursive CTEs for traversal | **Accepted — PoC-1 confirms plain CTEs** (p95 ≤ ~0.65 ms at 50k) |
 | 002 | Visualization & layout | Decoupled layout/render; elkjs `layered` + union nodes + couple containers; SVG (PoC-2 + PoC-3) | **Accepted — layout & SVG both validated**; rendering *library* decided in build phase |
 | 003 | Backend language | Go (REST API) | Accepted |
-| 004 | Authentication & ownership | Server-side sessions + argon2id passwords; `owner_user_id` on `person`; gated open registration | **Proposed** (awaiting approval) |
+| 004 | Authentication & ownership | Server-side sessions + argon2id passwords; `owner_user_id` on `person`; bounded open registration | **Accepted 2026-11-03**; implemented and amended after security review (2026-11-04) |
 
 Guiding principles for this project: keep domain data separate from visual
 layout state; model kinship as a DAG (two parents), not a tree; derive what can
@@ -286,11 +287,12 @@ a new ADR. Router: `chi`; migrations: `golang-migrate`.
 
 ### ADR-004: Authentication and data ownership
 **Date:** 2026-11-03
-**Status:** **Accepted 2026-11-03** (owner approved). Implementation in progress, in three
-slices: (1) auth tables + `identity` module — **done, tested**; (2) persons/relationship
-routes behind the session middleware, `person.owner_user_id`, `same_owner` rule — **done,
-tested**; (3) OpenAPI security scheme and docs — **done**, pending the owner's `make api-lint`.
-Nothing is deployed.
+**Status:** **Accepted 2026-11-03** (owner approved). **Implemented and tested in Phase 4**
+in three slices — (1) auth tables + `identity` module; (2) persons/relationship routes behind
+the session middleware, `person.owner_user_id`, `same_owner` rule; (3) OpenAPI security
+scheme and docs — and amended after two security reviews (see "Amendments" below). CI is green
+on the final commit and `make api-lint` passes. Nothing is deployed; the real-HTTPS cookie
+check and `TRUSTED_PROXIES` value are deploy-phase tasks.
 
 **Context:**
 The API currently has no notion of a user: every endpoint is public and every person

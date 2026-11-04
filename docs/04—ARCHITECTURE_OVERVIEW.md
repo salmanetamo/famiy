@@ -71,9 +71,12 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 ## Runtime and tooling
 - **Local:** `make dev` runs Postgres 16 in Docker (host port 5433) and the API on the host;
   `make up` runs both in containers (`deploy/docker-compose.yml`).
-- **Config:** environment variables only (`DATABASE_URL`, `HTTP_ADDR`, `LOG_LEVEL`).
-- **CI:** `.github/workflows/api-ci.yml` (build, vet, golangci-lint, `go test -race`, with a
-  Postgres service container). Written; its first GitHub run is not yet confirmed.
+- **Config:** environment variables only: `DATABASE_URL`, `HTTP_ADDR`, `LOG_LEVEL`, plus the
+  auth settings `REGISTRATION_ENABLED`, `MAX_USERS`, `SESSION_TTL`, `COOKIE_SECURE`,
+  `ALLOWED_ORIGINS`, `TRUSTED_PROXIES` (see `famiy-api/.env.example`). Unsafe combinations log
+  startup warnings.
+- **CI:** `.github/workflows/api-ci.yml` (build, vet, golangci-lint, `go test -race` with a
+  Postgres service container, Docker image build). Green on the Phase 4 final commit.
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
 ## Not built yet (planned)
