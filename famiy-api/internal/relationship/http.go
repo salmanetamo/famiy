@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/salmanetamo/famiy/famiy-api/internal/platform/apperr"
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/httpx"
 )
 
@@ -19,6 +20,46 @@ func NewHandler(svc *Service, owner httpx.OwnerFunc) *Handler {
 
 func (h *Handler) Routes(r chi.Router) {
 	r.Get("/persons/{id}/ancestors", h.ancestors)
+	r.Post("/persons/{id}/parents", h.addParent)
+}
+
+// addParentRequest and parentLinkResponse are the wire format of a parent link.
+type addParentRequest struct {
+	ParentID int64 `json:"parent_id"`
+}
+
+type parentLinkResponse struct {
+	ChildID  int64 `json:"child_id"`
+	ParentID int64 `json:"parent_id"`
+}
+
+// addParent links the person in the path (the child) to a parent. There is no
+// Location header: a link has no URL of its own.
+func (h *Handler) addParent(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	childID, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var req addParentRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if req.ParentID <= 0 {
+		httpx.Error(w, r, apperr.Invalid("validation_failed", "parent_id must be a positive integer"))
+		return
+	}
+	link := ParentLink{ParentID: req.ParentID, ChildID: childID}
+	if err := h.svc.AddParentLink(r.Context(), ownerID, link); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, r, http.StatusCreated, parentLinkResponse{ChildID: childID, ParentID: req.ParentID})
 }
 
 type ancestorResponse struct {

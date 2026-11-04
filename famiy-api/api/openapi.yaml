@@ -236,6 +236,55 @@ paths:
         "404":
           $ref: "#/components/responses/PersonNotFound"
 
+  /persons/{id}/parents:
+    post:
+      summary: Add a parent to a person
+      description: >
+        Links the person in the path (the child) to an existing person (the parent). Both must
+        belong to the signed-in account; a person that is missing or belongs to someone else
+        is reported identically (404 person_not_found). A person has at most two parents, a
+        link cannot be repeated, and no link may make a person their own ancestor. There is no
+        Location header: a link has no URL of its own. Read parents back with
+        GET /persons/{id}/ancestors (generations = 1).
+      operationId: addParent
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddParent" }
+            example: { parent_id: 7 }
+      responses:
+        "201":
+          description: The link was created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ParentLink" }
+              example: { child_id: 9, parent_id: 7 }
+        "400":
+          description: >
+            Bad id (invalid_id), malformed body or wrong type (invalid_json), parent_id missing
+            or not positive (validation_failed), or a person named as their own parent
+            (self_parent)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+        "409":
+          description: >
+            The child already has two parents (too_many_parents), the link already exists
+            (duplicate_parent), or the parent is already a descendant of the child
+            (would_create_cycle)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: would_create_cycle, message: this parent link would make a person their own ancestor }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -342,6 +391,20 @@ components:
         birth_approx: { type: boolean }
         death_date: { type: [string, "null"], format: date }
         created_at: { type: string, format: date-time }
+
+    AddParent:
+      type: object
+      additionalProperties: false
+      required: [parent_id]
+      properties:
+        parent_id: { type: integer, format: int64, minimum: 1 }
+
+    ParentLink:
+      type: object
+      required: [child_id, parent_id]
+      properties:
+        child_id: { type: integer, format: int64 }
+        parent_id: { type: integer, format: int64 }
 
     Ancestors:
       type: object

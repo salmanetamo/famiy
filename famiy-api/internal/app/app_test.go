@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +12,6 @@ import (
 	"github.com/salmanetamo/famiy/famiy-api/internal/app"
 	"github.com/salmanetamo/famiy/famiy-api/internal/identity"
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/testdb"
-	"github.com/salmanetamo/famiy/famiy-api/internal/relationship"
 )
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -209,22 +207,12 @@ func TestPersonErrors(t *testing.T) {
 }
 
 func TestAncestorsEndpoint(t *testing.T) {
-	h, svcs := newApp(t)
-	c, owner := signIn(t, h, "ada@example.com")
-	ids := map[string]int64{}
-	for _, n := range []string{"grand", "parent", "child"} {
-		rec := send(t, h, http.MethodPost, "/persons", `{"given_name":"`+n+`"}`, withCookie(c))
-		ids[n] = int64(decode(t, rec)["id"].(float64))
-	}
-	ctx := context.Background()
-	for _, l := range []relationship.ParentLink{
-		{ParentID: ids["grand"], ChildID: ids["parent"]},
-		{ParentID: ids["parent"], ChildID: ids["child"]},
-	} {
-		if err := svcs.Relationships.AddParentLink(ctx, owner, l); err != nil {
-			t.Fatal(err)
-		}
-	}
+	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
+	grand, parent, child := mkPerson(t, h, c, "grand"), mkPerson(t, h, c, "parent"), mkPerson(t, h, c, "child")
+	mkLink(t, h, c, grand, parent)
+	mkLink(t, h, c, parent, child)
+	ids := map[string]int64{"grand": grand, "parent": parent, "child": child}
 
 	rec := send(t, h, http.MethodGet, "/persons/"+itoa(ids["child"])+"/ancestors", "", withCookie(c))
 	if rec.Code != http.StatusOK {

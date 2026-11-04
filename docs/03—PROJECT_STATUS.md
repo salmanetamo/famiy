@@ -18,7 +18,8 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
 | Local stack: Postgres 16 in Compose (host port 5433), Makefile, `.env.example` | implemented, tested (db up, migrate, test, `make up`) |
 | Migrations `000001_init` (PoC-1 schema) and `000002_integrity_hardening` (name/date CHECKs, single parent-link trigger with acyclicity) | implemented, tested (up → down → up; constraints and trigger covered; applied to a fresh database via `make up`) |
 | `POST /persons`, `GET /persons/{id}`, `GET /persons/{id}/ancestors`, `GET /healthz` | implemented, tested (handler + repo integration tests on real Postgres) |
-| Domain invariants: no self-parent, ≤ 2 parents, no duplicate edge, **no cycles** (all race-safe) | implemented, tested incl. two concurrency tests that fail without the lock (3/3) and pass with it (3/3). No HTTP endpoint creates parent links yet. |
+| Domain invariants: no self-parent, ≤ 2 parents, no duplicate edge, **no cycles** (all race-safe) | implemented, tested incl. two concurrency tests that fail without the lock (3/3) and pass with it (3/3). Exposed over HTTP by `POST /persons/{id}/parents` (below). |
+| `POST /persons/{id}/parents` (parent-link endpoint), built with the `new-endpoint` skill | implemented, tested: success, ancestors reflect it, 13 error cases (self parent, duplicate, third parent, cycle, missing person on either side, bad ids/bodies), 401 without a session, 4 mixed-account cases, and the same-owner rewiring case (Alice linking two of Bob's people), which only the service's ownership check stops: removing that check fails exactly that test. OpenAPI documents it. |
 | ADR-004 slice 1: migration `000003_auth`, `internal/identity` (register, login, logout, me), argon2id, sessions, failed-login limiter, registration kill switch + user cap, Origin/JSON guards, new config | implemented, tested: unit + integration + HTTP tests; cap test fails 3/3 without its lock (11–15 signups through a cap of 3) and passes 3/3 with it; real server exercised with curl. (Slice 2 below closed the public persons routes.) |
 | ADR-004 slice 2: every persons/relationship route requires a session and is scoped to the signed-in account; `000004_person_owner` (`person.owner_user_id` NOT NULL, immutable; `same_owner` rule on parent links and partnerships) | implemented, tested: other accounts' people are 404 and indistinguishable from missing; mutation checks: dropping the owner filter fails tests in 3 packages, dropping the DB `same_owner` rule fails the bypass test, dropping the middleware fails the authenticated-flow tests (handlers' own owner check still returns 401: defence in depth) |
 | Security-review fixes (ADR-004 amendments): limiter now reserves before verifying; registration throttle (10/h/address), early cap check and separate hash slot; IPv6 /64 + v4-mapped canonicalisation and bounded limiter memory; `__Host-` cookie; ASCII-only emails; `no-store`/`nosniff` headers; `Retry-After`; origin normalisation; startup warnings; partnership UPDATE guard (`000005`) | implemented, tested: the parallel-login test failed before the fix (40 of 40 guesses checked) and passes after; mutation checks: counting nothing fails 5 limiter/HTTP tests, a neutered `000005` fails the cross-owner test, dropping the headers fails the header test. **Not tested:** that a registration flood cannot starve logins (structural: separate hash semaphores) |
@@ -30,7 +31,8 @@ workflow, skills and agent. Remaining Phase 4 items are listed under Next action
 | `api/openapi.yaml` | written (hand-maintained, docs-only); tested: `make api-lint` (Redocly 2.72.1) passes, confirmed by the owner 2026-11-01 (`security: []` and `api/redocly.yaml` address its style rules) |
 | Dockerfile / containerised run (`make up`: db → one-shot `migrate` → api) | implemented, tested locally on an existing and on a fresh database; CI now also builds the image (**first CI run of that step pending**) |
 | Skills `run-checks` and agent `go-reviewer` | exercised once each (both worked) |
-| Skills `new-migration`, `new-endpoint` | written, committed; **not yet exercised** (`000002` was done by hand before the skill's checklist was re-read) |
+| Skill `new-endpoint` | exercised once (parent-link endpoint); one deviation from its checklist: no `Location` header, because a link has no URL |
+| Skill `new-migration` | written, committed; **not yet exercised** (`000002`-`000005` were done by hand) |
 | Line endings: `.gitattributes` pins LF for Go/SQL/YAML/Makefile/Dockerfile | implemented; fixes `gofmt -l` flagging every file on Windows with `core.autocrlf=true` |
 | Authentication, partnership API, update/delete/search, frontend | not started |
 | Anything deployed to a server | **nothing deployed** |
@@ -120,7 +122,7 @@ None — Phase 3 complete (PoC-1, PoC-2, PoC-3 all done).
 ## Next actions
 1. Finish Phase 4: confirm the first green GitHub Actions run; run the new skills/agent
    once; decide authentication (recommendation to be presented); close out the phase.
-2. Next slice candidates: a parent-link endpoint (checks already enforced), partnership
+2. Next slice candidates: parent-link removal (DELETE), partnership
    API, person update/delete/search, remaining PoC-1 traversals (descendants, siblings,
    relationship path).
 3. Build-phase decision: rendering library (Cytoscape.js vs. React Flow).
