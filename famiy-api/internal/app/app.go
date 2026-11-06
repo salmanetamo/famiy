@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/salmanetamo/famiy/famiy-api/internal/graph"
 	"github.com/salmanetamo/famiy/famiy-api/internal/identity"
 	"github.com/salmanetamo/famiy/famiy-api/internal/person"
 	"github.com/salmanetamo/famiy/famiy-api/internal/platform/config"
@@ -24,6 +25,8 @@ type Config struct {
 	Identity       identity.Config
 	Handler        identity.HandlerConfig
 	AllowedOrigins []string
+	// MaxPersonsPerAccount caps how many people one account may create; zero means person.DefaultMaxPersons.
+	MaxPersonsPerAccount int
 }
 
 // ConfigFrom derives the router configuration from the environment-backed config.
@@ -34,8 +37,9 @@ func ConfigFrom(c config.Config) Config {
 			MaxUsers:            c.MaxUsers,
 			SessionTTL:          c.SessionTTL,
 		},
-		Handler:        identity.HandlerConfig{CookieSecure: c.CookieSecure, TrustedProxies: c.TrustedProxies},
-		AllowedOrigins: c.AllowedOrigins,
+		Handler:              identity.HandlerConfig{CookieSecure: c.CookieSecure, TrustedProxies: c.TrustedProxies},
+		AllowedOrigins:       c.AllowedOrigins,
+		MaxPersonsPerAccount: c.MaxPersonsPerAccount,
 	}
 }
 
@@ -53,7 +57,11 @@ type Pinger interface {
 
 // NewRouter builds the HTTP handler and the services behind it.
 func NewRouter(pool *pgxpool.Pool, cfg Config) (http.Handler, Services, error) {
-	personSvc := person.NewService(person.NewPgRepository(pool))
+	var personOpts []person.Option
+	if cfg.MaxPersonsPerAccount > 0 {
+		personOpts = append(personOpts, person.WithMaxPersons(cfg.MaxPersonsPerAccount))
+	}
+	personSvc := person.NewService(person.NewPgRepository(pool), personOpts...)
 	relSvc := relationship.NewService(relationship.NewPgRepository(pool), personSvc)
 	identSvc, err := identity.NewService(identity.NewPgRepository(pool), cfg.Identity)
 	if err != nil {
@@ -79,6 +87,7 @@ func NewRouter(pool *pgxpool.Pool, cfg Config) (http.Handler, Services, error) {
 		r.Use(identHandler.RequireAuth)
 		person.NewHandler(personSvc, owner).Routes(r)
 		relationship.NewHandler(relSvc, owner).Routes(r)
+		graph.NewHandler(graph.NewService(graph.NewPgRepository(pool)), owner).Routes(r)
 	})
 
 	return r, Services{Persons: personSvc, Relationships: relSvc, Identity: identSvc}, nil

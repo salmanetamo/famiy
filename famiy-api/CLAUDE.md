@@ -4,7 +4,8 @@ Module: `github.com/salmanetamo/famiy/famiy-api`. Run all commands from this fol
 
 ## Layout
 - `cmd/server/`            entrypoint; wiring only.
-- `internal/person/`       domain, service, repository interface, http handlers, pgx impl.
+- `internal/person/`       domain, service, repository interface, http handlers, pgx impl (create, get, name search, per-account cap).
+- `internal/graph/`        read-only read model (`GET /graph`); reads person, parent_child and partnership directly in one snapshot.
 - `internal/relationship/` parent-child links and the ancestors CTE (partnership: schema only, code planned).
 - `internal/platform/`     apperr, config, db pool, httpx (JSON/errors/middleware), testdb.
 - `internal/app/`          composition root: wires modules into the router; `/healthz`.
@@ -32,7 +33,7 @@ is stored), argon2id passwords (OWASP minimum, checked 2026-11-03), failed-login
 `RequireAuth` middleware. Settings: `REGISTRATION_ENABLED` (code default **false**), `MAX_USERS`,
 `SESSION_TTL`, `COOKIE_SECURE` (code default **true**), `ALLOWED_ORIGINS`, `TRUSTED_PROXIES`.
 Cookie is `__Host-famiy_session` (unprefixed only when `COOKIE_SECURE=false`). Limiters reserve an attempt
-BEFORE the slow check. Set `TRUSTED_PROXIES` behind a proxy (startup warns if empty). Never log passwords,
+BEFORE the slow check. `MAX_PERSONS_PER_ACCOUNT` (default 10000) caps people per account; creation takes a per-owner advisory lock so the count and insert are atomic. Set `TRUSTED_PROXIES` behind a proxy (startup warns if empty). Never log passwords,
 tokens or emails; log user ids. Every person belongs to one account
 (`person.owner_user_id`): services take `ownerID` as an explicit parameter, repositories filter by
 it, another account's data is reported as **404** (never 403), and links must stay within one owner. Unsafe requests must be JSON and pass the

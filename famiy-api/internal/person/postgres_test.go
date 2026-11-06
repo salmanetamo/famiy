@@ -36,7 +36,7 @@ func TestDatabaseEnforcesPersonBounds(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := repo.Insert(context.Background(), owner, tc.p); err == nil {
+			if _, err := repo.Insert(context.Background(), owner, tc.p, person.DefaultMaxPersons); err == nil {
 				t.Fatal("database accepted a row the domain would reject")
 			}
 		})
@@ -44,7 +44,7 @@ func TestDatabaseEnforcesPersonBounds(t *testing.T) {
 
 	t.Run("values at the limits are accepted", func(t *testing.T) {
 		ok := strings.Repeat("é", person.MaxNameLen)
-		_, err := repo.Insert(context.Background(), owner, person.Person{GivenName: ok, FamilyName: &ok, BirthDate: day(1000, 1, 1)})
+		_, err := repo.Insert(context.Background(), owner, person.Person{GivenName: ok, FamilyName: &ok, BirthDate: day(1000, 1, 1)}, person.DefaultMaxPersons)
 		if err != nil {
 			t.Fatalf("limit values rejected: %v", err)
 		}
@@ -82,13 +82,13 @@ func TestOwnershipIsEnforcedByTheDatabase(t *testing.T) {
 	repo := person.NewPgRepository(pool)
 	alice := testdb.InsertUser(t, pool, "alice@example.com")
 	bob := testdb.InsertUser(t, pool, "bob@example.com")
-	p, err := repo.Insert(ctx, alice, person.Person{GivenName: "Ada"})
+	p, err := repo.Insert(ctx, alice, person.Person{GivenName: "Ada"}, person.DefaultMaxPersons)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("a person needs an existing owner", func(t *testing.T) {
-		if _, err := repo.Insert(ctx, 999999, person.Person{GivenName: "Orphan"}); err == nil {
+		if _, err := repo.Insert(ctx, 999999, person.Person{GivenName: "Orphan"}, person.DefaultMaxPersons); err == nil {
 			t.Fatal("inserted a person owned by a nonexistent account")
 		}
 	})

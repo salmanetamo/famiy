@@ -3,6 +3,7 @@ package person
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -24,6 +25,7 @@ func NewHandler(svc *Service, owner httpx.OwnerFunc) *Handler {
 
 func (h *Handler) Routes(r chi.Router) {
 	r.Post("/persons", h.create)
+	r.Get("/persons", h.search)
 	r.Get("/persons/{id}", h.get)
 }
 
@@ -129,4 +131,49 @@ func toResponse(p Person) personResponse {
 		DeathDate:   formatDate(p.DeathDate),
 		CreatedAt:   p.CreatedAt,
 	}
+}
+
+// summaryResponse is a person as search returns it: the same fields the graph
+// read model carries, without created_at.
+type summaryResponse struct {
+	ID          int64   `json:"id"`
+	GivenName   string  `json:"given_name"`
+	FamilyName  *string `json:"family_name"`
+	BirthDate   *string `json:"birth_date"`
+	BirthApprox bool    `json:"birth_approx"`
+	DeathDate   *string `json:"death_date"`
+}
+
+type searchResponse struct {
+	Persons []summaryResponse `json:"persons"`
+	HasMore bool              `json:"has_more"`
+}
+
+func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	limit := DefaultSearchLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			httpx.Error(w, r, apperr.Invalid("validation_failed", "limit must be an integer"))
+			return
+		}
+		limit = n
+	}
+	res, err := h.svc.Search(r.Context(), ownerID, r.URL.Query().Get("q"), limit)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	out := searchResponse{Persons: make([]summaryResponse, len(res.Persons)), HasMore: res.HasMore}
+	for i, p := range res.Persons {
+		out.Persons[i] = summaryResponse{
+			ID: p.ID, GivenName: p.GivenName, FamilyName: p.FamilyName,
+			BirthDate: formatDate(p.BirthDate), BirthApprox: p.BirthApprox, DeathDate: formatDate(p.DeathDate),
+		}
+	}
+	httpx.JSON(w, r, http.StatusOK, out)
 }

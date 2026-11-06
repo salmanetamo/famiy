@@ -55,6 +55,7 @@ Schema exists; **no API yet**.
 | **At most two parents per child** | `BEFORE INSERT` trigger `trg_parent_link_rules` (constraint name `max_two_parents`) | → `too_many_parents` (409) |
 | **Acyclic** (nobody is their own ancestor) | same trigger (constraint name `no_cycle`) | → `would_create_cycle` (409) |
 | **Both ends of a link have the same owner** | same trigger (`same_owner`); `trg_partnership_same_owner` for partnerships (fires on INSERT and on UPDATE of either partner) | service checks both persons are the caller's → `person_not_found` (404); a DB-level hit is also reported as `person_not_found` so existence never leaks |
+| At most `MAX_PERSONS_PER_ACCOUNT` people per account (default 10000) | none (a count cannot be a CHECK) | `Insert` takes a per-owner advisory lock, counts, inserts → `person_limit_reached` (409). Bounds the `/graph` payload |
 | Ownership never changes | `trg_person_owner_immutable` (`owner_immutable`) | n/a |
 | Partnership stored once, canonically | `CHECK (partner_a < partner_b)` + PK | planned |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |
@@ -88,6 +89,7 @@ only: edges are inserted or deleted, never updated (a table comment says so).
 - **Ancestors** — implemented: recursive CTE (`relationship/postgres.go`) with a `CYCLE`
   guard; `min(depth)` + `GROUP BY` collapses duplicate paths from diamonds such as cousin
   marriages. Each ancestor is returned once at its shortest generational distance.
+- **The whole-account graph** — implemented (`internal/graph`): persons, links and partnerships read in one `REPEATABLE READ, READ ONLY` transaction. An edge's owner is the owner of its parent / `partner_a` person (the `same_owner` triggers make the other end match).
 - **Descendants, siblings, relationship path / LCA, ego network** — queries proven in PoC-1
   (`pocs/poc1-db-benchmark/sql/queries/`), **not yet implemented** in the API.
 

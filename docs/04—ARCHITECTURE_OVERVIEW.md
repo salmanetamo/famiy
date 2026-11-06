@@ -1,6 +1,6 @@
 # Architecture Overview — Family Graph
 
-_Last updated: 2026-11-04. Describes what is **implemented** in `famiy-api/` unless marked
+_Last updated: 2026-11-05. Describes what is **implemented** in `famiy-api/` unless marked
 **planned**. Decisions and their evidence live in `02—ARCHITECTURE_DECISIONS.md`._
 
 ## Shape
@@ -39,7 +39,8 @@ flowchart LR
 | Module | Owns | Depends on |
 |---|---|---|
 | `internal/identity` | Accounts, argon2id passwords, server-side sessions, failed-login limiter, `RequireAuth` (ADR-004) | `platform` |
-| `internal/person` | Person model, validation, create/get, **scoped to an owner** | `platform` |
+| `internal/person` | Person model, validation, create/get/search, **scoped to an owner**; the per-account person cap | `platform` |
+| `internal/graph` | Read model for rendering: `GET /graph` returns an account's people, parent links and partnerships from one snapshot. Query side only | `platform`. **Exception to rule 2 below:** it reads the person, `parent_child` and `partnership` tables directly rather than through the other modules, because three separate calls could not share a snapshot |
 | `internal/relationship` | `parent→child` links, invariants, ancestors traversal (partnership edges: **planned**) | `platform`; `person` only through the small `PersonLookup` interface |
 | `internal/platform` | `apperr` (error kinds), `config`, `db` (pgx pool), `httpx` (JSON, error→status mapping, middleware), `testdb` (test helper) | nothing in the app |
 | `internal/app` | Wiring, router, `/healthz`; puts every non-auth route behind `RequireAuth` and injects "who is calling" into handlers | all modules |
@@ -71,7 +72,7 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 ## Runtime and tooling
 - **Local:** `make dev` runs Postgres 16 in Docker (host port 5433) and the API on the host;
   `make up` runs both in containers (`deploy/docker-compose.yml`).
-- **Config:** environment variables only: `DATABASE_URL`, `HTTP_ADDR`, `LOG_LEVEL`, plus the
+- **Config:** environment variables only: `DATABASE_URL`, `HTTP_ADDR`, `LOG_LEVEL`, `MAX_PERSONS_PER_ACCOUNT`, plus the
   auth settings `REGISTRATION_ENABLED`, `MAX_USERS`, `SESSION_TTL`, `COOKIE_SECURE`,
   `ALLOWED_ORIGINS`, `TRUSTED_PROXIES` (see `famiy-api/.env.example`). Unsafe combinations log
   startup warnings.
@@ -80,6 +81,6 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
 ## Not built yet (planned)
-Email verification and password reset, partnership endpoints, person update/delete/search, the
+Email verification and password reset, partnership endpoints, person update/delete, the
 `famiy-app` frontend (React + TypeScript; elkjs layout + SVG per ADR-002), photos, residence,
 and a per-tree ownership model (ownership is per account for now, ADR-004).

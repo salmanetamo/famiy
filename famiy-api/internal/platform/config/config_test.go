@@ -9,7 +9,7 @@ import (
 
 func setEnv(t *testing.T, kv map[string]string) {
 	t.Helper()
-	for _, k := range []string{"HTTP_ADDR", "LOG_LEVEL", "REGISTRATION_ENABLED", "COOKIE_SECURE", "MAX_USERS",
+	for _, k := range []string{"HTTP_ADDR", "LOG_LEVEL", "REGISTRATION_ENABLED", "COOKIE_SECURE", "MAX_USERS", "MAX_PERSONS_PER_ACCOUNT",
 		"SESSION_TTL", "ALLOWED_ORIGINS", "TRUSTED_PROXIES"} {
 		t.Setenv(k, "")
 	}
@@ -34,11 +34,14 @@ func TestLoadDefaultsAreFailClosed(t *testing.T) {
 	if cfg.MaxUsers != 10 || cfg.SessionTTL != 720*time.Hour {
 		t.Errorf("MaxUsers=%d SessionTTL=%s", cfg.MaxUsers, cfg.SessionTTL)
 	}
+	if cfg.MaxPersonsPerAccount != 10000 {
+		t.Errorf("MaxPersonsPerAccount = %d, want 10000", cfg.MaxPersonsPerAccount)
+	}
 }
 
 func TestLoadParsesValues(t *testing.T) {
 	setEnv(t, map[string]string{
-		"REGISTRATION_ENABLED": "true", "COOKIE_SECURE": "false", "MAX_USERS": "3", "SESSION_TTL": "2h",
+		"REGISTRATION_ENABLED": "true", "COOKIE_SECURE": "false", "MAX_USERS": "3", "SESSION_TTL": "2h", "MAX_PERSONS_PER_ACCOUNT": "250",
 		"ALLOWED_ORIGINS": " http://localhost:5173 , https://a.example ", "TRUSTED_PROXIES": "10.0.0.0/8, 172.16.0.0/12",
 	})
 	cfg, err := Load()
@@ -47,6 +50,9 @@ func TestLoadParsesValues(t *testing.T) {
 	}
 	if !cfg.RegistrationEnabled || cfg.CookieSecure || cfg.MaxUsers != 3 || cfg.SessionTTL != 2*time.Hour {
 		t.Errorf("unexpected: %+v", cfg)
+	}
+	if cfg.MaxPersonsPerAccount != 250 {
+		t.Errorf("MaxPersonsPerAccount = %d, want 250", cfg.MaxPersonsPerAccount)
 	}
 	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != "http://localhost:5173" {
 		t.Errorf("origins = %v", cfg.AllowedOrigins)
@@ -97,6 +103,9 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		"bad bool":              {"REGISTRATION_ENABLED": "maybe"},
 		"bad int":               {"MAX_USERS": "ten"},
 		"negative cap":          {"MAX_USERS": "-1"},
+		"zero person cap":       {"MAX_PERSONS_PER_ACCOUNT": "0"},
+		"negative person cap":   {"MAX_PERSONS_PER_ACCOUNT": "-5"},
+		"bad person cap":        {"MAX_PERSONS_PER_ACCOUNT": "lots"},
 		"bad duration":          {"SESSION_TTL": "soon"},
 		"zero duration":         {"SESSION_TTL": "0s"},
 		"bad proxy":             {"TRUSTED_PROXIES": "not-a-cidr"},
