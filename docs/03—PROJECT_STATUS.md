@@ -1,16 +1,43 @@
 # Project Status — Family Graph
 
-_Last updated: 2026-11-04_
+_Last updated: 2026-11-05_
 
 ## Current phase
-**Phase 4 — project setup and foundational infrastructure: complete (2026-11-04).**
-Phases 1–4 are done. Phase 5 is **not yet scoped** (candidates under Next actions).
+**Phase 5 — complete the backend API for the MVP's data: in progress (started 2026-11-05).**
+Phases 1–4 are done. Planned numbering: Phase 6 = frontend (`famiy-app/`), Phase 7 = deployment.
+Phase 5 slices, in order: (1) read model, (2) person update/delete, (3) partnership API,
+(4) bio and residence (first real use of `new-migration`), (5) further derived relationships
+only if a feature needs them. Photo is deferred to its own decision. Branch `feat/read-model`
+holds slice 1.
 
 ## Current milestone
 The backend foundation is on `main` (PR #1, 13 commits, merged 2026-11-04). The `check` job
 of the `api-ci` workflow — build, vet, golangci-lint, `go test -race` against a Postgres
 service container, and the Docker image build — **succeeded on the final commit** (`00fdf23`,
 2026-11-04, read from GitHub). Nothing is deployed.
+
+## Phase 5 progress — proposed / implemented / tested / deployed
+
+### Slice 1 — read model (branch `feat/read-model`, uncommitted)
+| Item | State |
+|---|---|
+| `GET /graph`: persons, parent links and partnerships of the signed-in account, read in one `REPEATABLE READ, READ ONLY` transaction. Lives in a new read-only package `internal/graph` that queries the three tables directly (a deliberate exception to "modules talk through interfaces": three separate calls could not share a snapshot). Nodes carry only layout fields (no `created_at`, bio, residence). `partnerships` is always present and is empty until slice 3. | implemented; tested against real Postgres (shape, empty account, three-account scoping); each of the three owner filters removed in turn fails `TestGraphIsScopedToTheCaller`. **Not tested:** the single-snapshot property itself; it rests on the transaction mode (`REPEATABLE READ, READ ONLY`), and no test would fail if the three reads became separate statements |
+| `GET /persons?q=&limit=`: every word of `q` must appear, case-insensitively, in "given family"; `%` `_` `\` are literal; ordered by family name, given name, id; `limit` default 20, max 50 (larger is rejected with 400, not clamped); `has_more` flag instead of paging. Not accent-insensitive (deferred with fuzzy search). | implemented; unit and integration tests, two-account test; mutation checks (owner filter, wildcard escaping, the `limit+1` fetch behind `has_more`, the limit bound) each fail a named test |
+| Per-account person cap `MAX_PERSONS_PER_ACCOUNT` (default 10000, must be ≥ 1): `POST /persons` takes a per-owner advisory lock, counts, inserts; over the cap it returns 409 `person_limit_reached`. Bounds the `/graph` payload. The cap guards creation only; `/graph` returns everything the account owns. | implemented; tested; concurrency test (15 parallel creates, cap 3) fails 3 runs out of 3 without the lock (12, 12 and 14 succeeded) and passes with it; counting every account's people instead of the caller's fails two tests |
+| `Cache-Control: no-store` kept on `/graph` (a deliberate default; relaxing it is a later decision). The server does not compress responses: the reverse proxy should (`encode` in Caddy, a deploy-phase item). | decision recorded |
+| OpenAPI, `.env.example`, `04—ARCHITECTURE_OVERVIEW.md`, `famiy-api/CLAUDE.md`, `DATA_MODEL.md` | updated; `make api-lint` **not yet run** (owner runs it) |
+
+**Measured payload** (local laptop, synthetic data with about 1.5 parent links and 0.4
+partnerships per person; names repeat, so the gzip ratio is optimistic; request time includes
+`curl` and the JSON encode, three runs each):
+
+| Persons | Links / partnerships | Raw JSON | gzip -9 | Request time |
+|---|---|---|---|---|
+| 1,000 | 1,498 / 400 | 189 KB | 17 KB | ~10 ms |
+| 10,000 | 14,998 / 4,000 | 1.94 MB | 163 KB | ~45–54 ms |
+
+`go-reviewer` ran once on slice 1. It found a non-UTF-8 byte in `openapi.yaml` (my edit script used the Windows default encoding) and a 500 for a search `q` containing NUL or invalid UTF-8; both are fixed, the second with tests that failed before the fix. Not yet done for slice 1: `make api-lint` (owner runs it) and CI on the merged commit.
+Slices 2–5: **proposed**, not started. Nothing in Phase 5 is deployed.
 
 ## Phase 4 outcome — proposed / implemented / tested / deployed
 Original objective: a Go + Postgres project proven end to end by one thin vertical slice, plus
@@ -84,6 +111,19 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
   database per test, not testcontainers (no extra dependency; CI uses a service container).
 - **Frontend:** React + TypeScript (familiar framework; novelty concentrated in
   the visualization layer).
+- **Phase 5 decisions (owner, 2026-11-05; no ADR, documented here):**
+  - *Read model:* one aggregate `GET /graph` (no pagination at this scale) plus `GET /persons?q=`
+    search, with a per-account person cap (`MAX_PERSONS_PER_ACCOUNT`, default 10000) as the size
+    bound; `no-store` kept. An ego-network/neighbourhood endpoint is deferred until the frontend
+    needs culling (ADR-002 ladder).
+  - *Person delete (slice 2, proposed):* hard delete; links and partnerships cascade at the
+    database level; documented as irreversible. Soft delete rejected (every CTE and list would
+    have to filter it).
+  - *Partnership `kind` (slice 3, proposed):* a small validated allowlist (for example `marriage`,
+    `partnership`, `other`) enforced by CHECK and in the domain; start/end dates deferred (additive
+    nullable columns later).
+  - *Profile fields (slice 4, proposed):* bio and residence as small text columns with length
+    CHECKs via `new-migration`; photo deferred and needs its own storage decision.
 
 ## Experiments in progress
 None.
@@ -127,15 +167,19 @@ None.
 - Accepted review nits: a failed session insert right after signup leaves an account the client
   saw as an error; expired sessions are purged at login rather than by a job; the same-origin
   check compares hosts, not schemes.
-- **API gaps for a client:** no endpoint lists a person's or an account's people or links, no
-  person update/delete/search, no partnership API, and direct parents are readable only through
-  `/ancestors` (generations = 1).
+- **API gaps for a client (after slice 1):** no person update/delete, no partnership API (so
+  `/graph` shows no couples yet), and direct parents/children are readable only through `/graph`
+  or `/ancestors` (generations = 1). Search is not accent-insensitive.
+- **`/graph` is the whole account:** bounded only by the person cap. Past roughly 10k people the
+  payload (about 2 MB raw at 10k) and the browser, not the database, become the limit; an
+  ego-network endpoint is the planned relief.
+- **Per-owner advisory lock on person creation** (`int32(owner id)` as the key): serialises one
+  account's creates only. A collision between two huge owner ids would only add waiting.
 
 ## Next actions
-Phase 5 is not scoped. Candidates, with my suggested order:
-1. **A read endpoint for the whole account** (people plus parent links, optionally with
-   search by name). No client can render or navigate a tree without it, and it is the contract
-   the layout service (ADR-002) will consume.
+Phase 5 slice 1 is implemented (see above). Remaining list, with the agreed order:
+1. ~~**A read endpoint for the whole account**~~ — done in slice 1 (`GET /graph`,
+   `GET /persons?q=`), pending review and CI.
 2. **Person update and delete.** Needs a decision on what deleting a person does to their links
    (they cascade today) and to the `ON DELETE RESTRICT` ownership rule.
 3. **Partnership API.** Schema and the `same_owner` guard already exist; the layout design

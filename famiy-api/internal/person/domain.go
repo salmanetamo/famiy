@@ -21,7 +21,22 @@ const (
 // inside what both time.Time and PostgreSQL DATE represent sensibly.
 var MinDate = time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC)
 
+// Search limits.
+const (
+	MaxQueryLen        = 100 // characters in the whole query
+	MaxQueryTokens     = 5   // whitespace-separated words
+	DefaultSearchLimit = 20
+	MaxSearchLimit     = 50
+)
+
+// DefaultMaxPersons is the per-account cap when none is configured. It bounds
+// the size of the GET /graph response (about 3 MB of JSON at the cap).
+const DefaultMaxPersons = 10000
+
 var ErrNotFound = apperr.NotFound("person_not_found", "person not found")
+
+// ErrLimitReached is returned when an account already owns the maximum number of people.
+var ErrLimitReached = apperr.Conflict("person_limit_reached", "this account has reached its limit on the number of people")
 
 // Person is a node in the family graph. Dates are calendar dates (UTC midnight).
 type Person struct {
@@ -100,4 +115,24 @@ func checkDate(field string, d *time.Time, latest time.Time) []string {
 		return []string{field + " must not be in the future"}
 	}
 	return nil
+}
+
+// ParseQuery splits a search query into its words. Every word must appear in a
+// person's name for them to match. The query is trimmed; it must not be empty.
+func ParseQuery(q string) ([]string, error) {
+	q = strings.TrimSpace(q)
+	switch {
+	// PostgreSQL text cannot hold NUL or invalid UTF-8; reject here rather than fail in the query.
+	case !utf8.ValidString(q) || strings.ContainsRune(q, 0):
+		return nil, apperr.Invalid("validation_failed", "q must be valid text")
+	case q == "":
+		return nil, apperr.Invalid("validation_failed", "q is required")
+	case utf8.RuneCountInString(q) > MaxQueryLen:
+		return nil, apperr.Invalid("validation_failed", fmt.Sprintf("q must be at most %d characters", MaxQueryLen))
+	}
+	tokens := strings.Fields(q)
+	if len(tokens) > MaxQueryTokens {
+		return nil, apperr.Invalid("validation_failed", fmt.Sprintf("q must have at most %d words", MaxQueryTokens))
+	}
+	return tokens, nil
 }

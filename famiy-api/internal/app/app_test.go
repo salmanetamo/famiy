@@ -232,3 +232,21 @@ func TestAncestorsEndpoint(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestPersonLimitIsPerAccountOverHTTP(t *testing.T) {
+	cfg := testConfig()
+	cfg.MaxPersonsPerAccount = 1
+	h, _, err := app.NewRouter(testdb.New(t), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ada, _ := signIn(t, h, "ada@example.com")
+	bob, _ := signIn(t, h, "bob@example.com")
+
+	mkPerson(t, h, ada, "First")
+	rec := send(t, h, "POST", "/persons", `{"given_name":"Second"}`, withCookie(ada))
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"person_limit_reached"`) {
+		t.Fatalf("over the cap: got %d %s, want 409 person_limit_reached", rec.Code, rec.Body)
+	}
+	mkPerson(t, h, bob, "Bob's first") // another account is unaffected
+}

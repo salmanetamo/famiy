@@ -3,7 +3,7 @@ info:
   title: Family Graph API
   version: 0.1.0
   description: >
-    Phase 4 vertical slice. Hand-maintained and documentation-only (no codegen);
+    Phase 4 foundation plus the Phase 5 read model (in progress). Hand-maintained and documentation-only (no codegen);
     the integration tests in internal/app are the executable contract.
     Cookie-session authentication (ADR-004): sign in with /auth/register or /auth/login, which
     set an HttpOnly session cookie. A person that belongs to another account is reported as 404,
@@ -144,6 +144,45 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
 
   /persons:
+    get:
+      summary: Search your people by name
+      description: >
+        Returns the caller's people whose name contains every word of q, case-insensitively
+        (not accent-insensitively: "Zoe" does not match "Zoë"). q is split on whitespace; %, _
+        and \ are ordinary characters. Results are ordered by family name (people without one last), given name, id.
+        There is no paging: use limit and has_more. To list everyone use GET /graph.
+      operationId: searchPersons
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: 1 to 100 characters after trimming, at most 5 words
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: Matching people (possibly none)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResult" }
+              example:
+                persons:
+                  - { id: 1, given_name: Ada, family_name: Lovelace, birth_date: "1815-12-10", birth_approx: false, death_date: "1852-11-27" }
+                has_more: false
+        "400":
+          description: >
+            q missing, blank, over 100 characters or over 5 words; limit not an integer or outside 1..50
+            (validation_failed). An over-large limit is rejected, not clamped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: validation_failed, message: q is required }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
     post:
       summary: Create a person
       operationId: createPerson
@@ -181,6 +220,15 @@ paths:
                 error: { code: validation_failed, message: given_name is required }
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "409":
+          description: >
+            The account already owns the maximum number of people (person_limit_reached;
+            MAX_PERSONS_PER_ACCOUNT, default 10000)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: person_limit_reached, message: this account has reached its limit on the number of people }
         "413":
           description: Request body larger than 1 MiB (request_too_large)
           content:
@@ -315,6 +363,36 @@ paths:
               example:
                 error: { code: parent_link_not_found, message: that person is not a parent of this person }
 
+  /graph:
+    get:
+      summary: The whole family graph of the account
+      description: >
+        Everything the caller owns in one consistent snapshot: people, parent links and
+        partnerships. This is what a client lays out and renders. Nodes carry only the fields
+        layout needs (no created_at, bio or residence; fetch those per person). Persons are
+        ordered by id, links by (parent_id, child_id), partnerships by their stored pair.
+        An account with no data gets three empty arrays. The size is bounded by
+        MAX_PERSONS_PER_ACCOUNT. Measured locally with synthetic data: 1,000 people (1,498
+        links, 400 partnerships) is 189 KB of JSON, about 17 KB gzipped; 10,000 people is
+        1.94 MB, about 163 KB gzipped. The server does not compress; the reverse proxy should.
+        The response is Cache-Control: no-store like every other.
+      operationId: getGraph
+      responses:
+        "200":
+          description: The graph
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Graph" }
+              example:
+                persons:
+                  - { id: 1, given_name: Ada, family_name: Lovelace, birth_date: "1815-12-10", birth_approx: false, death_date: "1852-11-27" }
+                  - { id: 2, given_name: Byron, family_name: null, birth_date: null, birth_approx: false, death_date: null }
+                parent_links:
+                  - { parent_id: 1, child_id: 2 }
+                partnerships: []
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -428,6 +506,59 @@ components:
         birth_approx: { type: boolean }
         death_date: { type: [string, "null"], format: date }
         created_at: { type: string, format: date-time }
+
+    PersonSummary:
+      description: A person as search and the graph carry them (Person without created_at)
+      type: object
+      required: [id, given_name, family_name, birth_date, birth_approx, death_date]
+      properties:
+        id: { type: integer, format: int64 }
+        given_name: { type: string }
+        family_name: { type: [string, "null"] }
+        birth_date: { type: [string, "null"], format: date }
+        birth_approx: { type: boolean }
+        death_date: { type: [string, "null"], format: date }
+
+    SearchResult:
+      type: object
+      required: [persons, has_more]
+      properties:
+        persons:
+          type: array
+          items: { $ref: "#/components/schemas/PersonSummary" }
+        has_more:
+          type: boolean
+          description: More matches exist beyond limit
+
+    Graph:
+      type: object
+      required: [persons, parent_links, partnerships]
+      properties:
+        persons:
+          type: array
+          items: { $ref: "#/components/schemas/PersonSummary" }
+        parent_links:
+          type: array
+          items:
+            type: object
+            required: [parent_id, child_id]
+            properties:
+              parent_id: { type: integer, format: int64 }
+              child_id: { type: integer, format: int64 }
+        partnerships:
+          type: array
+          description: Always present; empty until partnerships can be created
+          items:
+            type: object
+            required: [partners, kind]
+            properties:
+              partners:
+                type: array
+                description: The two people, in no meaningful order
+                minItems: 2
+                maxItems: 2
+                items: { type: integer, format: int64 }
+              kind: { type: string }
 
     AddParent:
       type: object

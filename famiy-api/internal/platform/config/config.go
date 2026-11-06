@@ -19,12 +19,13 @@ type Config struct {
 	LogLevel    slog.Level
 
 	// Accounts and sessions (ADR-004).
-	RegistrationEnabled bool
-	MaxUsers            int
-	SessionTTL          time.Duration
-	CookieSecure        bool
-	AllowedOrigins      []string       // extra browser origins allowed to make unsafe requests
-	TrustedProxies      []netip.Prefix // peers whose X-Forwarded-For is believed
+	RegistrationEnabled  bool
+	MaxUsers             int
+	MaxPersonsPerAccount int // cap on people one account may create; bounds the GET /graph payload
+	SessionTTL           time.Duration
+	CookieSecure         bool
+	AllowedOrigins       []string       // extra browser origins allowed to make unsafe requests
+	TrustedProxies       []netip.Prefix // peers whose X-Forwarded-For is believed
 }
 
 // Load reads configuration from environment variables. Unsafe-by-default
@@ -54,6 +55,12 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxUsers < 0 {
 		return Config{}, errors.New("MAX_USERS must not be negative")
+	}
+	if cfg.MaxPersonsPerAccount, err = getint("MAX_PERSONS_PER_ACCOUNT", 10000); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxPersonsPerAccount < 1 {
+		return Config{}, errors.New("MAX_PERSONS_PER_ACCOUNT must be at least 1")
 	}
 	if cfg.SessionTTL, err = time.ParseDuration(getenv("SESSION_TTL", "720h")); err != nil {
 		return Config{}, fmt.Errorf("parse SESSION_TTL: %w", err)
