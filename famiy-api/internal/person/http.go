@@ -1,6 +1,7 @@
 package person
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -27,6 +28,8 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Post("/persons", h.create)
 	r.Get("/persons", h.search)
 	r.Get("/persons/{id}", h.get)
+	r.Patch("/persons/{id}", h.patch)
+	r.Delete("/persons/{id}", h.delete)
 }
 
 // createRequest and personResponse are the wire format; they are kept apart
@@ -176,4 +179,121 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.JSON(w, r, http.StatusOK, out)
+}
+
+// field records whether a JSON key was present and whether its value was null,
+// which encoding/json cannot tell apart on a plain pointer.
+type field[T any] struct {
+	Present bool
+	Null    bool
+	Value   T
+}
+
+func (f *field[T]) UnmarshalJSON(b []byte) error {
+	// Start clean: with a duplicate key the last one must win, not mix with the first.
+	*f = field[T]{Present: true}
+	if string(b) == "null" {
+		f.Null = true
+		return nil
+	}
+	return json.Unmarshal(b, &f.Value)
+}
+
+// patchRequest is a JSON Merge Patch body: an absent key leaves the field
+// alone, null clears it (where it can be cleared) and a value replaces it.
+type patchRequest struct {
+	GivenName   field[string] `json:"given_name"`
+	FamilyName  field[string] `json:"family_name"`
+	BirthDate   field[string] `json:"birth_date"`
+	BirthApprox field[bool]   `json:"birth_approx"`
+	DeathDate   field[string] `json:"death_date"`
+}
+
+func (req patchRequest) toPatch() (Patch, error) {
+	var p Patch
+	if req.GivenName.Null {
+		return Patch{}, apperr.Invalid("validation_failed", "given_name must not be null")
+	}
+	if req.BirthApprox.Null {
+		return Patch{}, apperr.Invalid("validation_failed", "birth_approx must not be null")
+	}
+	if req.GivenName.Present {
+		p.GivenName = &req.GivenName.Value
+	}
+	if req.BirthApprox.Present {
+		p.BirthApprox = &req.BirthApprox.Value
+	}
+	if req.FamilyName.Present {
+		p.FamilyName.Set = true
+		if !req.FamilyName.Null {
+			p.FamilyName.Value = &req.FamilyName.Value
+		}
+	}
+	for _, d := range []struct {
+		name string
+		in   field[string]
+		out  *Nullable[time.Time]
+	}{
+		{"birth_date", req.BirthDate, &p.BirthDate},
+		{"death_date", req.DeathDate, &p.DeathDate},
+	} {
+		if !d.in.Present {
+			continue
+		}
+		d.out.Set = true
+		if d.in.Null {
+			continue
+		}
+		t, err := parseDate(d.name, &d.in.Value)
+		if err != nil {
+			return Patch{}, err
+		}
+		d.out.Value = t
+	}
+	return p, nil
+}
+
+func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	id, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	var req patchRequest
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	patch, err := req.toPatch()
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	p, err := h.svc.Update(r.Context(), ownerID, id, patch)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	httpx.JSON(w, r, http.StatusOK, toResponse(p))
+}
+
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	id, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	if err := h.svc.Delete(r.Context(), ownerID, id); err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

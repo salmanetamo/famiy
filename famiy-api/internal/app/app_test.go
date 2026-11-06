@@ -250,3 +250,18 @@ func TestPersonLimitIsPerAccountOverHTTP(t *testing.T) {
 	}
 	mkPerson(t, h, bob, "Bob's first") // another account is unaffected
 }
+
+// PostgreSQL text cannot hold a NUL character; the API must say 400, not 500.
+func TestCreatePersonRejectsUnstorableText(t *testing.T) {
+	h, _ := newApp(t)
+	c, _ := signIn(t, h, "ada@example.com")
+	for name, body := range map[string]string{
+		"NUL in given_name":  `{"given_name":"A\u0000B"}`,
+		"NUL in family_name": `{"given_name":"A","family_name":"B\u0000"}`,
+	} {
+		rec := send(t, h, "POST", "/persons", body, withCookie(c))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"validation_failed"`) {
+			t.Errorf("%s: got %d %s, want 400 validation_failed", name, rec.Code, rec.Body)
+		}
+	}
+}

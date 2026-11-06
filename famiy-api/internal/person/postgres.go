@@ -116,3 +116,53 @@ func (r *PgRepository) Search(ctx context.Context, ownerID int64, tokens []strin
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
+
+// Update locks the row (owner-scoped) before reading it, so two concurrent
+// updates are applied one after the other instead of both starting from the
+// same stale row and the second overwriting the first. FOR NO KEY UPDATE is
+// enough for that and, unlike FOR UPDATE, does not block the KEY SHARE lock
+// that inserting a link or partnership takes on the person.
+func (r *PgRepository) Update(ctx context.Context, ownerID, id int64, merge func(Person) (Person, error)) (Person, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Person{}, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	cur, err := scanPerson(tx.QueryRow(ctx,
+		`SELECT `+personColumns+` FROM person WHERE id = $1 AND owner_user_id = $2 FOR NO KEY UPDATE`, id, ownerID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Person{}, ErrNotFound
+	}
+	if err != nil {
+		return Person{}, fmt.Errorf("lock person: %w", err)
+	}
+	next, err := merge(cur)
+	if err != nil {
+		return Person{}, err
+	}
+	out, err := scanPerson(tx.QueryRow(ctx, `
+		UPDATE person
+		SET given_name = $3, family_name = $4, birth_date = $5, birth_approx = $6, death_date = $7
+		WHERE id = $1 AND owner_user_id = $2
+		RETURNING `+personColumns,
+		id, ownerID, next.GivenName, next.FamilyName, next.BirthDate, next.BirthApprox, next.DeathDate))
+	if err != nil {
+		return Person{}, fmt.Errorf("update person: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Person{}, fmt.Errorf("commit: %w", err)
+	}
+	return out, nil
+}
+
+func (r *PgRepository) Delete(ctx context.Context, ownerID, id int64) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM person WHERE id = $1 AND owner_user_id = $2`, id, ownerID)
+	if err != nil {
+		return fmt.Errorf("delete person: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

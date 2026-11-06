@@ -16,6 +16,13 @@ type Repository interface {
 	// case it returns ErrLimitReached. The count and the insert are atomic.
 	Insert(ctx context.Context, ownerID int64, p Person, maxPersons int) (Person, error)
 	Get(ctx context.Context, ownerID, id int64) (Person, error)
+	// Update reads the owner's person under a row lock, replaces it with the
+	// result of merge (which may refuse with a domain error) and returns it.
+	// It returns ErrNotFound for a missing person or one owned by someone else.
+	Update(ctx context.Context, ownerID, id int64, merge func(current Person) (Person, error)) (Person, error)
+	// Delete removes the owner's person; their parent links and partnerships go
+	// with it (ON DELETE CASCADE). It returns ErrNotFound as Update does.
+	Delete(ctx context.Context, ownerID, id int64) error
 	// Search returns up to limit of the owner's people whose name contains every
 	// token (case-insensitively), ordered by family name, given name, id.
 	Search(ctx context.Context, ownerID int64, tokens []string, limit int) ([]Person, error)
@@ -88,4 +95,31 @@ func (s *Service) Search(ctx context.Context, ownerID int64, q string, limit int
 		res.Persons, res.HasMore = found[:limit], true
 	}
 	return res, nil
+}
+
+// Update applies patch to one of ownerID's people. The merged result goes
+// through New, so create and update share one set of rules, including the ones
+// that span fields (birth_approx needs birth_date; death not before birth).
+func (s *Service) Update(ctx context.Context, ownerID, id int64, patch Patch) (Person, error) {
+	updated, err := s.repo.Update(ctx, ownerID, id, func(cur Person) (Person, error) {
+		return New(patch.Apply(cur), s.now())
+	})
+	if err != nil {
+		return Person{}, fmt.Errorf("update person %d: %w", id, err)
+	}
+	return updated, nil
+}
+
+// Delete permanently removes one of ownerID's people together with their
+// parent links and partnerships. Their children and partners are kept.
+//
+// No advisory lock is taken: removing edges can never create a cycle, exceed
+// two parents or join two owners, and a concurrent link insert that still sees
+// the person either refuses conservatively or fails its foreign key
+// (reported as person_not_found).
+func (s *Service) Delete(ctx context.Context, ownerID, id int64) error {
+	if err := s.repo.Delete(ctx, ownerID, id); err != nil {
+		return fmt.Errorf("delete person %d: %w", id, err)
+	}
+	return nil
 }

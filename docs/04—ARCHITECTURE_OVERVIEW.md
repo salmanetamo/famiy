@@ -39,7 +39,7 @@ flowchart LR
 | Module | Owns | Depends on |
 |---|---|---|
 | `internal/identity` | Accounts, argon2id passwords, server-side sessions, failed-login limiter, `RequireAuth` (ADR-004) | `platform` |
-| `internal/person` | Person model, validation, create/get/search, **scoped to an owner**; the per-account person cap | `platform` |
+| `internal/person` | Person model, validation, create/get/update/delete/search, **scoped to an owner**; the per-account person cap | `platform` |
 | `internal/graph` | Read model for rendering: `GET /graph` returns an account's people, parent links and partnerships from one snapshot. Query side only | `platform`. **Exception to rule 2 below:** it reads the person, `parent_child` and `partnership` tables directly rather than through the other modules, because three separate calls could not share a snapshot |
 | `internal/relationship` | `parent→child` links, invariants, ancestors traversal (partnership edges: **planned**) | `platform`; `person` only through the small `PersonLookup` interface |
 | `internal/platform` | `apperr` (error kinds), `config`, `db` (pgx pool), `httpx` (JSON, error→status mapping, middleware), `testdb` (test helper) | nothing in the app |
@@ -81,6 +81,6 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
 ## Not built yet (planned)
-Email verification and password reset, partnership endpoints, person update/delete, the
+Email verification and password reset, partnership endpoints, the
 `famiy-app` frontend (React + TypeScript; elkjs layout + SVG per ADR-002), photos, residence,
 and a per-tree ownership model (ownership is per account for now, ADR-004).

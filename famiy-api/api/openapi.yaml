@@ -255,6 +255,74 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/PersonNotFound"
+    patch:
+      summary: Update a person
+      description: >
+        JSON Merge Patch semantics (RFC 7396), sent as application/json: a key that is absent
+        leaves the field unchanged, null clears it, a value replaces it. family_name, birth_date
+        and death_date can be cleared; given_name and birth_approx cannot (null is a 400). A
+        blank family_name clears it, as on create. The merged result is validated with the same
+        rules as create, so rules that span fields apply to the result: clearing birth_date while
+        birth_approx is true is refused unless the same request sets birth_approx to false, and
+        death_date must not end up before birth_date. id, created_at and ownership cannot be
+        patched (unknown field). An empty object is a no-op and returns the person. Concurrent
+        updates are applied one after the other, so changes to different fields are all kept.
+      operationId: updatePerson
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchPerson" }
+            example:
+              family_name: null
+              death_date: "1852-11-27"
+      responses:
+        "200":
+          description: The person after the update
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400":
+          description: >
+            Malformed JSON, an unknown or wrongly typed field (invalid_json), a rule violated
+            (validation_failed), or id is not a positive integer (invalid_id).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: validation_failed, message: birth_approx requires birth_date }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+        "413":
+          description: Request body larger than 1 MiB (request_too_large)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: request_too_large, message: "request body exceeds 1048576 bytes" }
+    delete:
+      summary: Delete a person permanently
+      description: >
+        Irreversible. The person is removed together with every parent link they are part of
+        (as parent and as child) and every partnership they are in. Their children and partners
+        are kept; a child simply has one parent fewer. The person no longer counts towards
+        MAX_PERSONS_PER_ACCOUNT. Clients should refetch GET /graph afterwards.
+      operationId: deletePerson
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
 
   /persons/{id}/ancestors:
     get:
@@ -494,6 +562,17 @@ components:
           type: [string, "null"]
           format: date
           description: Must not be before birth_date
+
+    PatchPerson:
+      type: object
+      additionalProperties: false
+      description: Every property is optional; absent means unchanged
+      properties:
+        given_name: { type: string, maxLength: 200, description: "Cannot be null; surrounding whitespace is trimmed" }
+        family_name: { type: [string, "null"], maxLength: 200, description: null or blank clears it }
+        birth_date: { type: [string, "null"], format: date, description: "null clears it. Between 1000-01-01 and today" }
+        birth_approx: { type: boolean, description: "Cannot be null. true requires a birth_date after the merge" }
+        death_date: { type: [string, "null"], format: date, description: "null clears it. Must not be before birth_date" }
 
     Person:
       type: object

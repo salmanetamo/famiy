@@ -4,7 +4,7 @@ Module: `github.com/salmanetamo/famiy/famiy-api`. Run all commands from this fol
 
 ## Layout
 - `cmd/server/`            entrypoint; wiring only.
-- `internal/person/`       domain, service, repository interface, http handlers, pgx impl (create, get, name search, per-account cap).
+- `internal/person/`       domain, service, repository interface, http handlers, pgx impl (create, get, patch, delete, name search, per-account cap).
 - `internal/graph/`        read-only read model (`GET /graph`); reads person, parent_child and partnership directly in one snapshot.
 - `internal/relationship/` parent-child links and the ancestors CTE (partnership: schema only, code planned).
 - `internal/platform/`     apperr, config, db pool, httpx (JSON/errors/middleware), testdb.

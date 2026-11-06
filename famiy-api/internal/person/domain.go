@@ -67,6 +67,8 @@ func New(in Input, now time.Time) (Person, error) {
 
 	given := strings.TrimSpace(in.GivenName)
 	switch {
+	case !validText(given):
+		problems = append(problems, "given_name must be valid text")
 	case given == "":
 		problems = append(problems, "given_name is required")
 	case utf8.RuneCountInString(given) > MaxNameLen:
@@ -74,7 +76,11 @@ func New(in Input, now time.Time) (Person, error) {
 	}
 	var family *string
 	if in.FamilyName != nil {
-		if f := strings.TrimSpace(*in.FamilyName); f != "" {
+		f := strings.TrimSpace(*in.FamilyName)
+		switch {
+		case !validText(f):
+			problems = append(problems, "family_name must be valid text")
+		case f != "":
 			if utf8.RuneCountInString(f) > MaxNameLen {
 				problems = append(problems, fmt.Sprintf("family_name must be at most %d characters", MaxNameLen))
 			}
@@ -102,6 +108,57 @@ func New(in Input, now time.Time) (Person, error) {
 		BirthApprox: in.BirthApprox,
 		DeathDate:   in.DeathDate,
 	}, nil
+}
+
+// validText reports whether s can be stored in a PostgreSQL text column, which
+// holds neither NUL nor invalid UTF-8. Without this check the insert fails with
+// an internal error instead of a validation error.
+func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }
+
+// Nullable is one optional field of a Patch. Unset leaves the stored value
+// alone; Set with a nil Value clears it; Set with a Value replaces it.
+type Nullable[T any] struct {
+	Set   bool
+	Value *T
+}
+
+// Patch is a partial update with JSON Merge Patch semantics (RFC 7396). The
+// required given name and the boolean cannot be cleared, so they are plain
+// pointers (nil = unchanged).
+type Patch struct {
+	GivenName   *string
+	FamilyName  Nullable[string]
+	BirthDate   Nullable[time.Time]
+	BirthApprox *bool
+	DeathDate   Nullable[time.Time]
+}
+
+// Apply returns the Input that results from applying p to cur. It does not
+// validate; pass the result to New.
+func (p Patch) Apply(cur Person) Input {
+	in := Input{
+		GivenName:   cur.GivenName,
+		FamilyName:  cur.FamilyName,
+		BirthDate:   cur.BirthDate,
+		BirthApprox: cur.BirthApprox,
+		DeathDate:   cur.DeathDate,
+	}
+	if p.GivenName != nil {
+		in.GivenName = *p.GivenName
+	}
+	if p.FamilyName.Set {
+		in.FamilyName = p.FamilyName.Value
+	}
+	if p.BirthDate.Set {
+		in.BirthDate = p.BirthDate.Value
+	}
+	if p.BirthApprox != nil {
+		in.BirthApprox = *p.BirthApprox
+	}
+	if p.DeathDate.Set {
+		in.DeathDate = p.DeathDate.Value
+	}
+	return in
 }
 
 func checkDate(field string, d *time.Time, latest time.Time) []string {

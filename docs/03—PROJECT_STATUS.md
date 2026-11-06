@@ -37,7 +37,22 @@ partnerships per person; names repeat, so the gzip ratio is optimistic; request 
 | 10,000 | 14,998 / 4,000 | 1.94 MB | 163 KB | ~45–54 ms |
 
 `go-reviewer` ran once on slice 1. It found a non-UTF-8 byte in `openapi.yaml` (my edit script used the Windows default encoding) and a 500 for a search `q` containing NUL or invalid UTF-8; both are fixed, the second with tests that failed before the fix. Not yet done for slice 1: `make api-lint` (owner runs it) and CI on the merged commit.
-Slices 2–5: **proposed**, not started. Nothing in Phase 5 is deployed.
+Slices 3–5: **proposed**, not started. Nothing in Phase 5 is deployed.
+
+### Slice 2 — person update and delete (working tree on `main`, uncommitted)
+| Item | State |
+|---|---|
+| Fix: `POST /persons` returned **500** for a name containing a NUL character (PostgreSQL text cannot store it). Reproduced first with failing tests (500 instead of 400); `person.New` now rejects NUL and invalid UTF-8 in `given_name` and `family_name` with `validation_failed`. Pre-existing since Phase 4. | implemented; tested; removing the check fails `TestNew`, `TestPatchApplyAndValidate` and the HTTP tests for create and patch |
+| `PATCH /persons/{id}`: JSON Merge Patch (absent = unchanged, `null` clears `family_name` / `birth_date` / `death_date`, `null` for `given_name` or `birth_approx` is a 400). The patch is applied to the stored row and the result goes through `person.New`, so cross-field rules apply to the merged result. `{}` is a 200 no-op; unknown fields (including `id`, `created_at`) are `invalid_json`. The read-merge-write runs in one transaction behind `SELECT … FOR NO KEY UPDATE`, filtered by owner (the weaker lock still serialises updates, but does not block the foreign-key check of a concurrent link or partnership insert; suggested by the reviewer). | implemented; unit tests of every merge case, HTTP tests of each rejection (16 bad bodies) and each success, two-account test |
+| `DELETE /persons/{id}`: hard delete, 204, irreversible. The person's parent links (both directions) and partnerships go with them through the existing `ON DELETE CASCADE`; children and partners stay; capacity under the person cap is freed. No migration. No lock taken (deleting edges cannot create a cycle, exceed two parents or join two owners). | implemented; tested (links removed, neighbours kept, second delete 404, capacity freed) |
+| Two-account tests (Bob against Alice's people, who also own links and a partnership): same 404 body as a missing id for PATCH and DELETE; Alice's graph and person unchanged afterwards. | tested |
+| Mutation checks | owner filter on the update's `SELECT` removed → two-account test fails; on `DELETE` removed → fails; the row lock removed → `TestConcurrentUpdatesToDifferentFieldsAreBothKept` fails (lost update, 25 rounds); validity check removed → fails. **One mutation survives by design:** the owner filter on the `UPDATE` statement itself, because the locked `SELECT` already guarantees ownership in the same transaction and ownership is immutable (trigger); it is kept as defence in depth and is not independently tested |
+| OpenAPI, `04`, `DATA_MODEL.md` | updated; `make api-lint` **not yet run** (owner runs it) |
+
+**Not tested:** a DELETE racing a concurrent link insert, partnership insert or person create, and a PATCH racing a DELETE. The reasoning (edge deletes cannot create a cycle or a third parent; an insert either commits before the delete and is cascaded away, or fails its foreign key; a PATCH waiting on the lock finds no row and gets 404) is argued in `Service.Delete`, not demonstrated. Over HTTP only NUL can reach the text check (Go's JSON decoder turns invalid UTF-8 into U+FFFD); invalid UTF-8 is covered by the domain unit tests only.
+
+Decisions taken (proposed to the owner, who said to use the recommendations): `{}` is a no-op
+200, not a 400; DELETE returns a bare 204 (clients refetch `/graph`).
 
 ## Phase 4 outcome — proposed / implemented / tested / deployed
 Original objective: a Go + Postgres project proven end to end by one thin vertical slice, plus
@@ -116,7 +131,7 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
     search, with a per-account person cap (`MAX_PERSONS_PER_ACCOUNT`, default 10000) as the size
     bound; `no-store` kept. An ego-network/neighbourhood endpoint is deferred until the frontend
     needs culling (ADR-002 ladder).
-  - *Person delete (slice 2, proposed):* hard delete; links and partnerships cascade at the
+  - *Person delete (slice 2, implemented):* hard delete; links and partnerships cascade at the
     database level; documented as irreversible. Soft delete rejected (every CTE and list would
     have to filter it).
   - *Partnership `kind` (slice 3, proposed):* a small validated allowlist (for example `marriage`,
@@ -167,9 +182,9 @@ None.
 - Accepted review nits: a failed session insert right after signup leaves an account the client
   saw as an error; expired sessions are purged at login rather than by a job; the same-origin
   check compares hosts, not schemes.
-- **API gaps for a client (after slice 1):** no person update/delete, no partnership API (so
-  `/graph` shows no couples yet), and direct parents/children are readable only through `/graph`
-  or `/ancestors` (generations = 1). Search is not accent-insensitive.
+- **API gaps for a client (after slice 2):** no partnership API (so `/graph` shows no couples
+  yet), and direct parents/children are readable only through `/graph` or `/ancestors`
+  (generations = 1). Search is not accent-insensitive. There is no undo for a person delete.
 - **`/graph` is the whole account:** bounded only by the person cap. Past roughly 10k people the
   payload (about 2 MB raw at 10k) and the browser, not the database, become the limit; an
   ego-network endpoint is the planned relief.

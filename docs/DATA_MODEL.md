@@ -56,6 +56,8 @@ Schema exists; **no API yet**.
 | **Acyclic** (nobody is their own ancestor) | same trigger (constraint name `no_cycle`) | → `would_create_cycle` (409) |
 | **Both ends of a link have the same owner** | same trigger (`same_owner`); `trg_partnership_same_owner` for partnerships (fires on INSERT and on UPDATE of either partner) | service checks both persons are the caller's → `person_not_found` (404); a DB-level hit is also reported as `person_not_found` so existence never leaks |
 | At most `MAX_PERSONS_PER_ACCOUNT` people per account (default 10000) | none (a count cannot be a CHECK) | `Insert` takes a per-owner advisory lock, counts, inserts → `person_limit_reached` (409). Bounds the `/graph` payload |
+| Names are storable text (no NUL, valid UTF-8) | PostgreSQL itself refuses such text | `person.New` → `validation_failed` (otherwise the insert fails as a 500) |
+| Deleting a person removes their edges only | `ON DELETE CASCADE` on `parent_child` and `partnership` | `DELETE /persons/{id}` is irreversible; children and partners remain, with one parent / partner fewer |
 | Ownership never changes | `trg_person_owner_immutable` (`owner_immutable`) | n/a |
 | Partnership stored once, canonically | `CHECK (partner_a < partner_b)` + PK | planned |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |
