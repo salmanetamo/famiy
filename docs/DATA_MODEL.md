@@ -1,7 +1,7 @@
 # Data Model — Family Graph
 
-_Last updated: 2026-11-02. Source of truth: `famiy-api/migrations/`. This page explains it;
-if they disagree, the migrations win. Schema version: `000005_partnership_update_guard`._
+_Last updated: 2026-11-06. Source of truth: `famiy-api/migrations/`. This page explains it;
+if they disagree, the migrations win. Schema version: `000006_add_partnership_kind_check`._
 
 ## Principles (ADR-001)
 - Kinship is a **DAG**, not a tree: a person has up to two parents.
@@ -42,9 +42,16 @@ Indexes: `idx_pc_child` (walk up), `idx_pc_parent` (walk down; technically redun
 the PK's leading column, kept to make intent explicit).
 
 ### `partnership`
-`(partner_a, partner_b, kind)` — composite PK, FKs to `person` with `ON DELETE CASCADE`,
-`kind` defaults to `marriage`. Index `idx_partnership_b` for lookups from the `b` side.
-Schema exists; **no API yet**.
+Columns `(partner_a, partner_b, kind)`; the **primary key is `(partner_a, partner_b)` only**, so a pair
+of people has at most one partnership (an earlier version of this page wrongly listed `kind`
+in the key). FKs to `person` with `ON DELETE CASCADE`. `kind` is one of `marriage` (default),
+`partnership` (an unmarried couple) or `other`, enforced by the CHECK `partnership_kind_allowed`
+(migration `000006`) and by the domain. Index `idx_partnership_b` for lookups from the `b` side.
+A person may be in any number of partnerships (remarriage); nothing forbids partners who are
+also related by blood. Consequence: the same two people cannot have two separate stints
+(married, divorced, remarried), only one row whose `kind` changes; real start/end dates, when
+added, would need the key to change. API: `POST/PATCH/DELETE /persons/{id}/partners…`; either
+order of the pair is accepted and `partner_a < partner_b` is never visible to clients.
 
 ## Invariants and where they are enforced
 | Invariant | Database | Domain / API |
@@ -59,7 +66,8 @@ Schema exists; **no API yet**.
 | Names are storable text (no NUL, valid UTF-8) | PostgreSQL itself refuses such text | `person.New` → `validation_failed` (otherwise the insert fails as a 500) |
 | Deleting a person removes their edges only | `ON DELETE CASCADE` on `parent_child` and `partnership` | `DELETE /persons/{id}` is irreversible; children and partners remain, with one parent / partner fewer |
 | Ownership never changes | `trg_person_owner_immutable` (`owner_immutable`) | n/a |
-| Partnership stored once, canonically | `CHECK (partner_a < partner_b)` + PK | planned |
+| Partnership stored once, canonically | `CHECK (partner_a < partner_b)` (constraint `partner_order`, which also rules out self-partnership) + PK → `duplicate_partnership` (409) | `Partnership.Ordered` puts the smaller id first, so (a, b) and (b, a) are one pair; `self_partner` (400) |
+| Partnership kind is one of three values | `CHECK` `partnership_kind_allowed` | `ValidKind` → `validation_failed` |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |
 | Given name not blank / names ≤ 200 chars / dates ≥ 1000-01-01 | `CHECK` | `person.New` → `validation_failed` |
 

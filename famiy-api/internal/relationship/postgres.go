@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -111,4 +112,79 @@ func (r *PgRepository) Ancestors(ctx context.Context, personID int64) ([]Ancesto
 		return nil, fmt.Errorf("iterate ancestors: %w", err)
 	}
 	return out, nil
+}
+
+func (r *PgRepository) AddPartnership(ctx context.Context, p Partnership) error {
+	a, b := p.Ordered()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO partnership (partner_a, partner_b, kind) VALUES ($1, $2, $3)`, a, b, p.Kind)
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgForeignKeyViolation:
+			return ErrPersonMissing
+		case pgUniqueViolation:
+			return ErrDuplicatePartnership
+		case pgCheckViolation:
+			// Match on the constraint name the migrations set, never on message text.
+			switch pgErr.ConstraintName {
+			case "partner_order":
+				return ErrSelfPartner // a < b is strict, so only a == b can fail it here
+			case "partnership_kind_allowed":
+				return ErrInvalidKind
+			case "same_owner":
+				// Reported as "not found" so a caller cannot learn that the
+				// other person exists under another account.
+				return ErrPersonMissing
+			}
+		}
+	}
+	return fmt.Errorf("insert partnership: %w", err)
+}
+
+func (r *PgRepository) GetPartnership(ctx context.Context, personID, partnerID int64) (Partnership, error) {
+	p := Partnership{PersonID: personID, PartnerID: partnerID}
+	a, b := p.Ordered()
+	err := r.pool.QueryRow(ctx,
+		`SELECT kind FROM partnership WHERE partner_a = $1 AND partner_b = $2`, a, b).Scan(&p.Kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Partnership{}, ErrPartnershipNotFound
+	}
+	if err != nil {
+		return Partnership{}, fmt.Errorf("select partnership: %w", err)
+	}
+	return p, nil
+}
+
+func (r *PgRepository) UpdatePartnershipKind(ctx context.Context, personID, partnerID int64, kind string) (Partnership, error) {
+	p := Partnership{PersonID: personID, PartnerID: partnerID}
+	a, b := p.Ordered()
+	err := r.pool.QueryRow(ctx,
+		`UPDATE partnership SET kind = $3 WHERE partner_a = $1 AND partner_b = $2 RETURNING kind`, a, b, kind).Scan(&p.Kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Partnership{}, ErrPartnershipNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation && pgErr.ConstraintName == "partnership_kind_allowed" {
+		return Partnership{}, ErrInvalidKind
+	}
+	if err != nil {
+		return Partnership{}, fmt.Errorf("update partnership: %w", err)
+	}
+	return p, nil
+}
+
+func (r *PgRepository) RemovePartnership(ctx context.Context, personID, partnerID int64) error {
+	a, b := Partnership{PersonID: personID, PartnerID: partnerID}.Ordered()
+	tag, err := r.pool.Exec(ctx, `DELETE FROM partnership WHERE partner_a = $1 AND partner_b = $2`, a, b)
+	if err != nil {
+		return fmt.Errorf("delete partnership: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrPartnershipNotFound
+	}
+	return nil
 }

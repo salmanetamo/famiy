@@ -6,7 +6,7 @@ Module: `github.com/salmanetamo/famiy/famiy-api`. Run all commands from this fol
 - `cmd/server/`            entrypoint; wiring only.
 - `internal/person/`       domain, service, repository interface, http handlers, pgx impl (create, get, patch, delete, name search, per-account cap).
 - `internal/graph/`        read-only read model (`GET /graph`); reads person, parent_child and partnership directly in one snapshot.
-- `internal/relationship/` parent-child links and the ancestors CTE (partnership: schema only, code planned).
+- `internal/relationship/` parent-child links, the ancestors CTE, and partnerships (kinds are a closed set; either order of a pair is accepted).
 - `internal/platform/`     apperr, config, db pool, httpx (JSON/errors/middleware), testdb.
 - `internal/app/`          composition root: wires modules into the router; `/healthz`.
 - `migrations/`            golang-migrate up/down SQL pairs.

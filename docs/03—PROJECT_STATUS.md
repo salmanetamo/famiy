@@ -7,8 +7,8 @@ _Last updated: 2026-11-05_
 Phases 1–4 are done. Planned numbering: Phase 6 = frontend (`famiy-app/`), Phase 7 = deployment.
 Phase 5 slices, in order: (1) read model, (2) person update/delete, (3) partnership API,
 (4) bio and residence (first real use of `new-migration`), (5) further derived relationships
-only if a feature needs them. Photo is deferred to its own decision. Branch `feat/read-model`
-holds slice 1.
+only if a feature needs them. Photo is deferred to its own decision. Slice 1 is merged (PR #2),
+slice 2 is on `main`, slice 3 is in the working tree.
 
 ## Current milestone
 The backend foundation is on `main` (PR #1, 13 commits, merged 2026-11-04). The `check` job
@@ -18,7 +18,7 @@ service container, and the Docker image build — **succeeded on the final commi
 
 ## Phase 5 progress — proposed / implemented / tested / deployed
 
-### Slice 1 — read model (branch `feat/read-model`, uncommitted)
+### Slice 1 — read model (merged as PR #2; the PR's `check` job and GitGuardian both succeeded, read from GitHub)
 | Item | State |
 |---|---|
 | `GET /graph`: persons, parent links and partnerships of the signed-in account, read in one `REPEATABLE READ, READ ONLY` transaction. Lives in a new read-only package `internal/graph` that queries the three tables directly (a deliberate exception to "modules talk through interfaces": three separate calls could not share a snapshot). Nodes carry only layout fields (no `created_at`, bio, residence). `partnerships` is always present and is empty until slice 3. | implemented; tested against real Postgres (shape, empty account, three-account scoping); each of the three owner filters removed in turn fails `TestGraphIsScopedToTheCaller`. **Not tested:** the single-snapshot property itself; it rests on the transaction mode (`REPEATABLE READ, READ ONLY`), and no test would fail if the three reads became separate statements |
@@ -36,10 +36,10 @@ partnerships per person; names repeat, so the gzip ratio is optimistic; request 
 | 1,000 | 1,498 / 400 | 189 KB | 17 KB | ~10 ms |
 | 10,000 | 14,998 / 4,000 | 1.94 MB | 163 KB | ~45–54 ms |
 
-`go-reviewer` ran once on slice 1. It found a non-UTF-8 byte in `openapi.yaml` (my edit script used the Windows default encoding) and a 500 for a search `q` containing NUL or invalid UTF-8; both are fixed, the second with tests that failed before the fix. Not yet done for slice 1: `make api-lint` (owner runs it) and CI on the merged commit.
-Slices 3–5: **proposed**, not started. Nothing in Phase 5 is deployed.
+`go-reviewer` ran once on slice 1. It found a non-UTF-8 byte in `openapi.yaml` (my edit script used the Windows default encoding) and a 500 for a search `q` containing NUL or invalid UTF-8; both are fixed, the second with tests that failed before the fix. Slice 1 is merged and the PR's CI passed; `make api-lint` was left to the owner.
+Slices 4–5: **proposed**, not started. Nothing in Phase 5 is deployed.
 
-### Slice 2 — person update and delete (working tree on `main`, uncommitted)
+### Slice 2 — person update and delete (on `main` as `db49391`; no PR, so no PR check run to read, and the push-to-`main` run was not read)
 | Item | State |
 |---|---|
 | Fix: `POST /persons` returned **500** for a name containing a NUL character (PostgreSQL text cannot store it). Reproduced first with failing tests (500 instead of 400); `person.New` now rejects NUL and invalid UTF-8 in `given_name` and `family_name` with `validation_failed`. Pre-existing since Phase 4. | implemented; tested; removing the check fails `TestNew`, `TestPatchApplyAndValidate` and the HTTP tests for create and patch |
@@ -53,6 +53,20 @@ Slices 3–5: **proposed**, not started. Nothing in Phase 5 is deployed.
 
 Decisions taken (proposed to the owner, who said to use the recommendations): `{}` is a no-op
 200, not a 400; DELETE returns a bare 204 (clients refetch `/graph`).
+
+### Slice 3 — partnership API (working tree on `main`, uncommitted)
+| Item | State |
+|---|---|
+| `POST /persons/{id}/partners` `{partner_id, kind?}` → 201 `{partner_id, kind}`; `PATCH /persons/{id}/partners/{partnerId}` `{kind}` → 200 (merge patch: `{}` returns the partnership, `null` is a 400); `DELETE …/{partnerId}` → 204. Person-centred routes like `/parents`; either order of the pair is the same partnership, so `partner_a < partner_b` never reaches a client. In the `relationship` module. No `GET` list route: `/graph` already carries partnerships. | implemented; unit, repository, HTTP and two-account tests |
+| Errors: `person_not_found` 404 (missing or another account's, same body), `self_partner` 400, `duplicate_partnership` 409 (either order), `partnership_not_found` 404 (only after both people are confirmed the caller's), `validation_failed` for a bad kind or `partner_id`. | tested |
+| `kind` is a closed set `marriage` (default) / `partnership` (unmarried couple) / `other`: migration `000006_add_partnership_kind_check` adds CHECK `partnership_kind_allowed`; the domain checks the same list. The migration fails loudly on any other value rather than rewriting it (the dev database had no partnership rows; nothing is deployed). This is the **first real use of the `new-migration` skill**: pair created with `make migrate-new`, applied to the dev database (5 → 6), rolled back (→ 5, constraint gone) and re-applied (→ 6, constraint present), all confirmed with `psql`. | implemented; round trip run by hand against the dev database; database-level test of the constraint |
+| Deliberately not enforced: partners who are parent and child, siblings or cousins (PoC-2 models a cousin marriage; genealogies contain odd cases); a cap on partners per person. No start/end dates (deferred; they would need the primary key to change, see `DATA_MODEL.md`). | decision recorded |
+| Correction: `DATA_MODEL.md` listed `kind` in the partnership primary key. The migration has `(partner_a, partner_b)`; the doc is fixed. | fixed |
+| No advisory lock: the only cross-row rules are the primary key and the same-owner trigger, both atomic in the database. Concurrency test: 20 parallel adds of one pair, half in each order, create exactly one row. | tested |
+| Mutation checks (each fails named tests, then restored) | ownership check removed from add / update / remove, one route at a time → `TestPartnerRoutesCannotReachAnotherAccount` subtests for that route fail; canonical ordering removed → four tests fail including the concurrency test; domain allowlist removed → `TestPartnershipValidate` fails; the database CHECK weakened to `true` → `TestDatabaseEnforcesPartnershipKind` fails |
+| OpenAPI, `04`, `DATA_MODEL.md`, `famiy-api/CLAUDE.md` | updated; `make api-lint` **not yet run** (owner runs it) |
+
+Not yet done for slice 3: `go-reviewer` pass, `make api-lint`, CI.
 
 ## Phase 4 outcome — proposed / implemented / tested / deployed
 Original objective: a Go + Postgres project proven end to end by one thin vertical slice, plus
@@ -134,7 +148,7 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
   - *Person delete (slice 2, implemented):* hard delete; links and partnerships cascade at the
     database level; documented as irreversible. Soft delete rejected (every CTE and list would
     have to filter it).
-  - *Partnership `kind` (slice 3, proposed):* a small validated allowlist (for example `marriage`,
+  - *Partnership `kind` (slice 3, implemented):* a small validated allowlist (for example `marriage`,
     `partnership`, `other`) enforced by CHECK and in the domain; start/end dates deferred (additive
     nullable columns later).
   - *Profile fields (slice 4, proposed):* bio and residence as small text columns with length
@@ -182,8 +196,7 @@ None.
 - Accepted review nits: a failed session insert right after signup leaves an account the client
   saw as an error; expired sessions are purged at login rather than by a job; the same-origin
   check compares hosts, not schemes.
-- **API gaps for a client (after slice 2):** no partnership API (so `/graph` shows no couples
-  yet), and direct parents/children are readable only through `/graph` or `/ancestors`
+- **API gaps for a client (after slice 3):** Direct parents/children are readable only through `/graph` or `/ancestors`
   (generations = 1). Search is not accent-insensitive. There is no undo for a person delete.
 - **`/graph` is the whole account:** bounded only by the person cap. Past roughly 10k people the
   payload (about 2 MB raw at 10k) and the browser, not the database, become the limit; an
@@ -195,16 +208,14 @@ None.
 Phase 5 slice 1 is implemented (see above). Remaining list, with the agreed order:
 1. ~~**A read endpoint for the whole account**~~ — done in slice 1 (`GET /graph`,
    `GET /persons?q=`), pending review and CI.
-2. **Person update and delete.** Needs a decision on what deleting a person does to their links
-   (they cascade today) and to the `ON DELETE RESTRICT` ownership rule.
-3. **Partnership API.** Schema and the `same_owner` guard already exist; the layout design
-   (union nodes, couple containers) depends on it.
+2. ~~**Person update and delete.**~~ — done in slice 2.
+3. ~~**Partnership API.**~~ — done in slice 3 (pending review and CI).
 4. **Start the frontend** (`famiy-app/`: React + TypeScript), including the rendering-library
    decision and the layout service from ADR-002.
 5. **Deployment phase:** Caddy and TLS, the VM, a migrate step, `TRUSTED_PROXIES`, backups,
    and the real-HTTPS cookie check.
 6. Remaining PoC-1 traversals (descendants, siblings, relationship path) when a feature needs
-   them; use the `new-migration` skill for the first schema change so it gets exercised.
+   them. (`new-migration` has now been exercised, in slice 3.)
 7. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large trees (PoC-3
    ladder); node duplication for the remarried-and-cross-branch layout case (ADR-002 known
    limitation) — when real data needs them.

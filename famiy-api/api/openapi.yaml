@@ -431,6 +431,125 @@ paths:
               example:
                 error: { code: parent_link_not_found, message: that person is not a parent of this person }
 
+  /persons/{id}/partners:
+    post:
+      summary: Record a partnership
+      description: >
+        Two people are partners. The order does not matter: naming the pair as (3, 7) or (7, 3)
+        is the same partnership, and the storage order is never exposed. A person may have any
+        number of partners (remarriage). Nothing forbids partners who are also related by
+        blood; genealogies contain such cases. A pair has at most one partnership, so the same
+        two people cannot be recorded twice, only have the kind changed. There is no Location
+        header: a partnership has no URL of its own. Partnerships appear in GET /graph.
+      operationId: addPartner
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddPartner" }
+            example: { partner_id: 7, kind: marriage }
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Partner" }
+              example: { partner_id: 7, kind: marriage }
+        "400":
+          description: >
+            Malformed JSON, an unknown or wrongly typed field (invalid_json); partner_id missing
+            or not positive, or kind not one of marriage, partnership, other (validation_failed);
+            a person partnered with themselves (self_partner); id not a positive integer (invalid_id).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: self_partner, message: a person cannot be their own partner }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+        "409":
+          description: These two people already have a partnership, in either order (duplicate_partnership)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: duplicate_partnership, message: these two people already have a partnership }
+
+  /persons/{id}/partners/{partnerId}:
+    patch:
+      summary: Change the kind of a partnership
+      description: >
+        JSON Merge Patch sent as application/json: an absent kind leaves it unchanged ({} returns
+        the partnership), null is refused. The pair may be named in either order. The response
+        names the partner as seen from the person in the path.
+      operationId: updatePartner
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+        - $ref: "#/components/parameters/PartnerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchPartner" }
+            example: { kind: partnership }
+      responses:
+        "200":
+          description: The partnership after the update
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Partner" }
+        "400":
+          description: >
+            Malformed JSON, an unknown or wrongly typed field (invalid_json); kind null or not
+            allowed (validation_failed); a person with themselves (self_partner); a bad id (invalid_id).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: validation_failed, message: "kind must be one of: marriage, partnership, other" }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: >
+            A person does not exist or belongs to another account (person_not_found, the two
+            cases indistinguishable), or both are the caller's but are not partners
+            (partnership_not_found; only reported once both people are confirmed to be the caller's).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: partnership_not_found, message: these two people are not partners }
+    delete:
+      summary: Remove a partnership
+      description: Deletes the partnership between the two people, named in either order. Both people are kept.
+      operationId: removePartner
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+        - $ref: "#/components/parameters/PartnerId"
+      responses:
+        "204":
+          description: Removed
+        "400":
+          description: A person with themselves (self_partner) or a bad id (invalid_id)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: self_partner, message: a person cannot be their own partner }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          description: person_not_found (missing or another account's) or partnership_not_found, as for PATCH
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: partnership_not_found, message: these two people are not partners }
+
   /graph:
     get:
       summary: The whole family graph of the account
@@ -489,6 +608,13 @@ components:
       in: path
       required: true
       description: The id of the parent whose link is removed
+      schema: { type: integer, format: int64, minimum: 1 }
+
+    PartnerId:
+      name: partnerId
+      in: path
+      required: true
+      description: The id of the other person in the partnership
       schema: { type: integer, format: int64, minimum: 1 }
 
     PersonId:
@@ -563,6 +689,36 @@ components:
           format: date
           description: Must not be before birth_date
 
+    AddPartner:
+      type: object
+      additionalProperties: false
+      required: [partner_id]
+      properties:
+        partner_id: { type: integer, format: int64, minimum: 1 }
+        kind:
+          type: string
+          enum: [marriage, partnership, other]
+          default: marriage
+          description: >
+            partnership means an unmarried couple. Absent means marriage; null is a 400
+            (validation_failed), not the default.
+
+    PatchPartner:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [marriage, partnership, other]
+          description: Cannot be null; absent means unchanged
+
+    Partner:
+      type: object
+      required: [partner_id, kind]
+      properties:
+        partner_id: { type: integer, format: int64 }
+        kind: { type: string, enum: [marriage, partnership, other] }
+
     PatchPerson:
       type: object
       additionalProperties: false
@@ -626,7 +782,7 @@ components:
               child_id: { type: integer, format: int64 }
         partnerships:
           type: array
-          description: Always present; empty until partnerships can be created
+          description: Always present, possibly empty
           items:
             type: object
             required: [partners, kind]
