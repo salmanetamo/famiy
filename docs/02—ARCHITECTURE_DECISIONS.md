@@ -3,7 +3,8 @@
 ## Current architecture status
 Phase 4 complete (2026-11-04). ADR-001 to ADR-004 are accepted. The two sub-decisions
 that were gated on proofs of concept (PoC-1, PoC-2/3) were resolved in Phase 3. ADR-004
-(authentication and ownership) was added and implemented in Phase 4.
+(authentication and ownership) was added and implemented in Phase 4. Phase 5 (2026-11-05 to
+2026-11-09, closed) added no ADR: its decisions are recorded in `03—PROJECT_STATUS.md`.
 
 ### Decisions at a glance
 | ADR | Area | Decision | Status |

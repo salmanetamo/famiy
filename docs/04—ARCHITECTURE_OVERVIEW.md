@@ -1,6 +1,6 @@
 # Architecture Overview — Family Graph
 
-_Last updated: 2026-11-05. Describes what is **implemented** in `famiy-api/` unless marked
+_Last updated: 2026-11-09. Describes what is **implemented** in `famiy-api/` unless marked
 **planned**. Decisions and their evidence live in `02—ARCHITECTURE_DECISIONS.md`._
 
 ## Shape

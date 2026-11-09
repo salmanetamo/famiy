@@ -1,6 +1,6 @@
 # Data Model — Family Graph
 
-_Last updated: 2026-11-10. Source of truth: `famiy-api/migrations/`. This page explains it;
+_Last updated: 2026-11-09. Source of truth: `famiy-api/migrations/`. This page explains it;
 if they disagree, the migrations win. Schema version: `000007_add_person_bio_residence`._
 
 ## Principles (ADR-001)

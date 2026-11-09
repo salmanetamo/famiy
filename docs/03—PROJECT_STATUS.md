@@ -1,22 +1,85 @@
 # Project Status — Family Graph
 
-_Last updated: 2026-11-05_
+_Last updated: 2026-11-09_
 
 ## Current phase
-**Phase 5 — complete the backend API for the MVP's data: in progress (started 2026-11-05).**
-Phases 1–4 are done. Planned numbering: Phase 6 = frontend (`famiy-app/`), Phase 7 = deployment.
-Phase 5 slices, in order: (1) read model, (2) person update/delete, (3) partnership API,
-(4) bio and residence (first real use of `new-migration`), (5) further derived relationships
-(descendants, siblings, relationship). Photo is deferred to its own decision. Slice 1 is merged
-(PR #2); slices 2–4 are on `origin/main`; slice 5 is in the working tree.
+**Phase 5 — complete the backend API for the MVP's data: closed (2026-11-09), at the owner's word.**
+Phases 1–5 are done. Next: **Phase 6 = frontend** (`famiy-app/`) and **Phase 7 = deployment**.
+Neither has started. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
+(3) partnership API, (4) bio and residence, (5) derived kinship (descendants, siblings,
+relationship). Photo was deferred to its own decision, and the ego-network endpoint for viewport
+culling stays deferred until the frontend measures a need. No ADR was written in Phase 5; its
+decisions are recorded under "Decisions confirmed" below.
 
 ## Current milestone
-The backend foundation is on `main` (PR #1, 13 commits, merged 2026-11-04). The `check` job
-of the `api-ci` workflow — build, vet, golangci-lint, `go test -race` against a Postgres
-service container, and the Docker image build — **succeeded on the final commit** (`00fdf23`,
-2026-11-04, read from GitHub). Nothing is deployed.
+The backend API for the MVP's data is complete on `main` (`ce474e1`, 2026-11-09). **Nothing is
+deployed.**
 
-## Phase 5 progress — proposed / implemented / tested / deployed
+### Evidence ledger: what each statement rests on
+| Statement | Basis |
+|---|---|
+| `gofmt`, `go vet`, `golangci-lint` (0 issues) and `go test -count=1 ./...` pass against real PostgreSQL 16 | **Run by me** on the committed tree `ce474e1` at close, and on the working tree after every slice |
+| Migrations `000001`–`000007` apply in order; `000006` and `000007` were also run up → down → up | **Run by me** against the dev database (now at version 7) |
+| CI (`api-ci`: build, vet, lint, `go test -race`, image build) is green for PR #1 and PR #2 | **Read from GitHub by me** (check runs of each PR's head) |
+| CI is green for the pushes of slices 2–5 (`db49391`, `d465714`, `40a04ca`, `ce474e1`) | **Reported by the owner** ("CI has run fine", 2026-11-09). I could not read it: my GitHub tools return check runs only for pull requests, and these slices went straight to `main` |
+| `go test -race` | **Never run on this machine** (no cgo toolchain). It runs in CI, so it is covered only as far as the owner's report is |
+| `make api-lint` (Redocly) | The owner confirmed it for Phase 4. **Not reported to me for the Phase 5 changes.** I checked that the OpenAPI file parses as YAML and is valid UTF-8; I have not run Redocly |
+| Nothing is deployed | Fact: no host, no Caddy, no TLS, no production database |
+
+## Phase 5 outcome: proposed / implemented / tested / deployed
+
+**Implemented and tested** (unit tests, integration tests on real PostgreSQL, HTTP-level tests; every
+new route has a two-account test; every protection was removed in turn to show a named test fails):
+
+| Route | Added in | Notes |
+|---|---|---|
+| `GET /healthz`, `POST /auth/register`, `/auth/login`, `/auth/logout`, `GET /auth/me` | Phase 4 | ADR-004 |
+| `POST /persons` | Phase 4; cap in slice 1; bio and residence in slice 4 | per-account cap `MAX_PERSONS_PER_ACCOUNT` (default 10000) |
+| `GET /persons/{id}` | Phase 4; bio and residence in slice 4 | |
+| `GET /persons?q=&limit=` | slice 1 | name search, `has_more`, not accent-insensitive |
+| `PATCH /persons/{id}` | slice 2 | JSON Merge Patch |
+| `DELETE /persons/{id}` | slice 2 | hard delete, irreversible, edges cascade |
+| `GET /graph` | slice 1 | whole account in one snapshot; layout fields only |
+| `GET /persons/{id}/ancestors` | Phase 4 | |
+| `GET /persons/{id}/descendants` | slice 5 | |
+| `GET /persons/{id}/siblings` | slice 5 | `shared_parents` count, not full/half |
+| `GET /persons/{id}/relationship/{otherId}` | slice 5 | structured relation + steps; blood relations only |
+| `POST /persons/{id}/parents`, `DELETE /persons/{id}/parents/{parentId}` | Phase 4 | |
+| `POST /persons/{id}/partners`, `PATCH` and `DELETE …/{partnerId}` | slice 3 | pair accepted in either order; kind is a closed set |
+
+Schema: migrations `000001`–`000005` (Phase 4), `000006_add_partnership_kind_check` and
+`000007_add_person_bio_residence` (Phase 5; the first two real uses of `new-migration`).
+
+**Reviews.** `go-reviewer` ran once on each of the five slices (and twice on Phase 4). It found no
+Must-fix issue in Phase 5; its Should-fix findings were all fixed, each with a test that fails
+without the fix: a non-UTF-8 byte in `openapi.yaml` and a 500 for NUL or invalid UTF-8 in a search
+`q` (slice 1); duplicate JSON keys in PATCH and a lock stronger than needed (slice 2); `kind: null`
+meaning the default on POST (slice 3); missing Unicode-whitespace and multi-byte test cases
+(slice 4); a tie-break that made `(a, b)` and `(b, a)` answer inconsistently under pedigree
+collapse (slice 5). Bugs I found myself while testing: `POST /persons` returned 500 for a NUL
+character (pre-existing since Phase 4, fixed in slice 2), and `btrim()` letting a bio of only line
+breaks through the database constraint (slice 4).
+
+**Not tested** (reasoned, not demonstrated): the single-snapshot property of `/graph` (no test fails
+if its three reads become separate statements); a DELETE racing a link insert, a partnership
+insert or a person create, and a PATCH racing a DELETE; invalid UTF-8 over HTTP (Go's decoder turns
+it into U+FFFD first, so only the domain unit tests cover it); that a registration flood cannot
+starve logins (carried over from Phase 4). One mutation survives by design: the owner filter on
+the `UPDATE` in `person.Update`, redundant with the locked `SELECT` and the immutable-owner trigger.
+
+**Measured** (local laptop, synthetic data): `/graph` at 1,000 persons is 189 KB (17 KB gzipped) in
+about 10 ms; at 10,000 persons 1.94 MB (163 KB gzipped) in about 45–54 ms. Names repeat, so the
+gzip figures are optimistic. See the table under slice 1.
+
+**Proposed, not started:** Phase 6 (frontend), Phase 7 (deployment), photo (needs its own storage
+decision and probably an ADR), email verification and password reset, the ego-network endpoint,
+accent-insensitive search, start/end dates on partnerships, tightening `given_name_not_blank`.
+
+**Deployed:** nothing.
+
+## Phase 5 evidence, slice by slice
+Kept as written during each slice. Where a line says a check was "not yet done", the ledger above
+is the current word on CI and `make api-lint`.
 
 ### Slice 1 — read model (merged as PR #2; the PR's `check` job and GitGuardian both succeeded, read from GitHub)
 | Item | State |
@@ -54,7 +117,7 @@ Nothing in Phase 5 is deployed.
 Decisions taken (proposed to the owner, who said to use the recommendations): `{}` is a no-op
 200, not a 400; DELETE returns a bare 204 (clients refetch `/graph`).
 
-### Slice 5 — descendants, siblings, relationship (working tree on `main`, uncommitted)
+### Slice 5 — descendants, siblings, relationship (on `origin/main` as `ce474e1`; no PR, so no check run to read)
 Honest framing: `/graph` already gives the browser the whole account, so the client could compute
 all of this itself. The routes exist so the kinship rules are written and tested once, in Go, and
 for when culling (ADR-002 ladder) means the client no longer has the whole graph.
@@ -72,7 +135,7 @@ for when culling (ADR-002 ladder) means the client no longer has the whole graph
 | Mutation checks (9 before the review; each failed named tests, then restored; plus the tie-break change below) | ownership check removed from each of the three routes; `min(depth)` → `max` in descendants; self-exclusion removed from siblings; the shared-parent count replaced by `1`; the best-pair ordering reversed; the aunt/niece comparison flipped (seen by both the unit and the HTTP tests); descendant/ancestor swapped for `steps_person == 0`. Two of my first attempts were malformed (the patch text collided with the tool's separator and broke the build), so I redid them and only the redone runs count. |
 | OpenAPI, `DATA_MODEL.md`, `04`, `famiy-api/CLAUDE.md`, this file | updated; `make api-lint` **not yet run** (owner runs it) |
 
-`go-reviewer` ran on slice 5: no Must-fix findings; the asymmetric tie-break above was its main finding. Not yet done for slice 5: `make api-lint` (owner runs it) and CI.
+`go-reviewer` ran on slice 5: no Must-fix findings; the asymmetric tie-break above was its main finding. For slice 5, `make api-lint` was left to the owner and CI is owner-reported green (see the ledger).
 
 ### Slice 4 — bio and residence (on `origin/main` as `40a04ca`; no PR, so no check run to read)
 | Item | State |
@@ -86,10 +149,10 @@ for when culling (ADR-002 ladder) means the client no longer has the whole graph
 | Mutation checks (12, each failed named tests, then restored) | domain length check removed; blank → null removed; patch field ignored in `Apply`; the three database CHECKs weakened one at a time; a column dropped from the `INSERT`, from the `UPDATE`, and from the row scan; the field dropped from the PATCH wiring and from the create wiring |
 | OpenAPI, `DATA_MODEL.md`, this file | updated; `make api-lint` **not yet run** (owner runs it) |
 
-`go-reviewer` ran on slice 4: no Must-fix findings; its Should-fix items (Unicode-space agreement between domain and database, multi-byte and UPDATE test cases) were applied. Not yet done for slice 4: `make api-lint` (owner runs it) and CI. Photo remains deferred (needs its
+`go-reviewer` ran on slice 4: no Must-fix findings; its Should-fix items (Unicode-space agreement between domain and database, multi-byte and UPDATE test cases) were applied. For slice 4, `make api-lint` was left to the owner and CI is owner-reported green (see the ledger). Photo remains deferred (needs its
 own storage decision).
 
-### Slice 3 — partnership API (committed to `main` as `d465714`, not pushed when slice 4 began; no PR, so no check run to read)
+### Slice 3 — partnership API (on `origin/main` as `d465714`; no PR, so no check run to read)
 | Item | State |
 |---|---|
 | `POST /persons/{id}/partners` `{partner_id, kind?}` → 201 `{partner_id, kind}`; `PATCH /persons/{id}/partners/{partnerId}` `{kind}` → 200 (merge patch: `{}` returns the partnership, `null` is a 400); `DELETE …/{partnerId}` → 204. Person-centred routes like `/parents`; either order of the pair is the same partnership, so `partner_a < partner_b` never reaches a client. In the `relationship` module. No `GET` list route: `/graph` already carries partnerships. | implemented; unit, repository, HTTP and two-account tests |
@@ -101,7 +164,7 @@ own storage decision).
 | Mutation checks (each fails named tests, then restored) | ownership check removed from add / update / remove, one route at a time → `TestPartnerRoutesCannotReachAnotherAccount` subtests for that route fail; canonical ordering removed → four tests fail including the concurrency test; domain allowlist removed → `TestPartnershipValidate` fails; the database CHECK weakened to `true` → `TestDatabaseEnforcesPartnershipKind` fails |
 | OpenAPI, `04`, `DATA_MODEL.md`, `famiy-api/CLAUDE.md` | updated; `make api-lint` **not yet run** (owner runs it) |
 
-`go-reviewer` ran on slice 3: no Must-fix findings. It found that `kind: null` on POST silently meant the default while PATCH refused it; both now share one parser and refuse it (new test, mutation-checked). Not yet done for slice 3: `make api-lint` (owner runs it) and CI.
+`go-reviewer` ran on slice 3: no Must-fix findings. It found that `kind: null` on POST silently meant the default while PATCH refused it; both now share one parser and refuse it (new test, mutation-checked). For slice 3, `make api-lint` was left to the owner and CI is owner-reported green (see the ledger).
 
 ## Phase 4 outcome — proposed / implemented / tested / deployed
 Original objective: a Go + Postgres project proven end to end by one thin vertical slice, plus
@@ -151,6 +214,7 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
   with a culling + transform ladder before Canvas. Headless is software-rendered
   (conservative; reconfirm on device). Harness in `poc3-render-bench/`.
 - Phase 4 — backend foundation, authentication and ownership: see "Phase 4 outcome" above.
+- Phase 5 — backend API for the MVP's data (closed 2026-11-09): see "Phase 5 outcome" above.
 
 ## Decisions confirmed
 - **Scope & constraints:** small scale (hundreds–low thousands of persons per
@@ -188,6 +252,11 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
     nullable columns later).
   - *Profile fields (slice 4, implemented):* bio and residence as small text columns with length
     CHECKs via `new-migration`; photo deferred and needs its own storage decision.
+  - *Derived kinship (slice 5, implemented):* descendants, siblings and relationship as read-only
+    routes computed from `parent_child`, nothing stored. The relationship answer is structured
+    (a `relation` category plus the two step counts), not English prose, so the client owns wording
+    and language; unrelated people get `200 related:false`; siblings expose `shared_parents`, not a
+    full/half verdict; only the closest relationship is reported and only blood relations count.
 
 ## Experiments in progress
 None.
@@ -202,6 +271,10 @@ None.
   reset by the operator directly in the database.
 - Privacy and retention of data about living relatives (`01—PRODUCT_REQUIREMENTS.md`) — to
   decide before the app holds real third-party data.
+- Photo: where files live (VM disk, size and type limits, serving, backups) and whether it needs an
+  ADR. Deferred out of Phase 5; the PRD lists one photo as essential for the MVP.
+- Whether the frontend will call descendants / siblings / relationship at all, since `/graph`
+  already gives it the whole account. Revisit when culling arrives.
 - Resolved in earlier phases: traversal mechanism (plain recursive CTEs), layout engine (elkjs,
   augmented), rendering technology (SVG with a culling + transform ladder), authentication
   approach (ADR-004).
@@ -231,8 +304,14 @@ None.
 - Accepted review nits: a failed session insert right after signup leaves an account the client
   saw as an error; expired sessions are purged at login rather than by a job; the same-origin
   check compares hosts, not schemes.
-- **API gaps for a client (after slice 3):** Direct parents/children are readable only through `/graph` or `/ancestors`
-  (generations = 1). Search is not accent-insensitive. There is no undo for a person delete.
+- **API gaps for a client (after Phase 5):** no dedicated "direct parents / children" route (they
+  are generation 1 of `/ancestors` and `/descendants`, and are in `/graph`); search is not
+  accent-insensitive; there is no undo for a person delete; no photo; no in-law or step relations.
+- **Derived-kinship limits:** only the closest relationship is reported, and "closest" is by total
+  distance, not strictly "lowest"; the recursive queries enumerate paths rather than distinct nodes,
+  so repeated cousin marriages multiply them (fine at this scale; PoC-1 covered diamonds with a
+  worst-case ancestor fan of 66 but not deep repeated collapse). Separate stints between the same
+  two partners need a primary-key change when partnership dates arrive.
 - **`/graph` is the whole account:** bounded only by the person cap. Past roughly 10k people the
   payload (about 2 MB raw at 10k) and the browser, not the database, become the limit; an
   ego-network endpoint is the planned relief.
@@ -250,18 +329,19 @@ None.
   account's creates only. A collision between two huge owner ids would only add waiting.
 
 ## Next actions
-Phase 5 slice 1 is implemented (see above). Remaining list, with the agreed order:
-1. ~~**A read endpoint for the whole account**~~ — done in slice 1 (`GET /graph`,
-   `GET /persons?q=`), pending review and CI.
-2. ~~**Person update and delete.**~~ — done in slice 2.
-3. ~~**Partnership API.**~~ — done in slice 3 (pending review and CI).
-4. **Start the frontend** (`famiy-app/`: React + TypeScript), including the rendering-library
-   decision and the layout service from ADR-002.
-5. **Deployment phase:** Caddy and TLS, the VM, a migrate step, `TRUSTED_PROXIES`, backups,
-   and the real-HTTPS cookie check.
-6. ~~Remaining PoC-1 traversals (descendants, siblings, relationship path)~~ — done in slice 5.
-   The ego network (neighbourhood for culling) is still deferred. (`new-migration` has been
-   exercised, in slices 3 and 4.)
-7. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large trees (PoC-3
-   ladder); node duplication for the remarried-and-cross-branch layout case (ADR-002 known
-   limitation) — when real data needs them.
+Phase 5 is closed. In suggested order:
+1. **Owner housekeeping before Phase 6:** run `make api-lint` against the Phase 5 OpenAPI changes
+   and tell me the result (I have not run Redocly). Open a PR for future slices so CI results are
+   readable from GitHub, not only reported.
+2. **Phase 6 — frontend** (`famiy-app/`: React + TypeScript): choose the rendering library
+   (Cytoscape.js vs React Flow), build the layout service from ADR-002 (elkjs `layered`, union
+   nodes, couple containers) and render `GET /graph`. Auth is cookie-based and same-origin; the
+   API requires `application/json` and a matching `Origin` on unsafe requests.
+3. **Phase 7 — deployment:** Caddy and TLS (and `encode` for gzip: the server does not compress),
+   the VM, a migrate step, `TRUSTED_PROXIES`, backups, and the real-HTTPS check of the `__Host-`
+   cookie. Decide the privacy and retention question before real data about living relatives goes in.
+4. **Decide the photo storage design** (own ADR) before it is needed.
+5. Deferred until something needs them: the ego-network endpoint and viewport culling (PoC-3
+   ladder), node duplication for the remarried-and-cross-branch layout case (ADR-002 limitation),
+   email verification and password reset, accent-insensitive search, partnership dates,
+   tightening `given_name_not_blank`, tree-scoped routes and collaboration.
