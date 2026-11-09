@@ -7,8 +7,8 @@ _Last updated: 2026-11-05_
 Phases 1–4 are done. Planned numbering: Phase 6 = frontend (`famiy-app/`), Phase 7 = deployment.
 Phase 5 slices, in order: (1) read model, (2) person update/delete, (3) partnership API,
 (4) bio and residence (first real use of `new-migration`), (5) further derived relationships
-only if a feature needs them. Photo is deferred to its own decision. Slice 1 is merged (PR #2),
-slices 2 and 3 are committed to `main` (3 not yet pushed), slice 4 is in the working tree.
+(descendants, siblings, relationship). Photo is deferred to its own decision. Slice 1 is merged
+(PR #2); slices 2–4 are on `origin/main`; slice 5 is in the working tree.
 
 ## Current milestone
 The backend foundation is on `main` (PR #1, 13 commits, merged 2026-11-04). The `check` job
@@ -37,7 +37,7 @@ partnerships per person; names repeat, so the gzip ratio is optimistic; request 
 | 10,000 | 14,998 / 4,000 | 1.94 MB | 163 KB | ~45–54 ms |
 
 `go-reviewer` ran once on slice 1. It found a non-UTF-8 byte in `openapi.yaml` (my edit script used the Windows default encoding) and a 500 for a search `q` containing NUL or invalid UTF-8; both are fixed, the second with tests that failed before the fix. Slice 1 is merged and the PR's CI passed; `make api-lint` was left to the owner.
-Slice 5: **proposed**, not started. Nothing in Phase 5 is deployed.
+Nothing in Phase 5 is deployed.
 
 ### Slice 2 — person update and delete (on `main` as `db49391`; no PR, so no PR check run to read, and the push-to-`main` run was not read)
 | Item | State |
@@ -54,7 +54,27 @@ Slice 5: **proposed**, not started. Nothing in Phase 5 is deployed.
 Decisions taken (proposed to the owner, who said to use the recommendations): `{}` is a no-op
 200, not a 400; DELETE returns a bare 204 (clients refetch `/graph`).
 
-### Slice 4 — bio and residence (working tree on `main`, uncommitted)
+### Slice 5 — descendants, siblings, relationship (working tree on `main`, uncommitted)
+Honest framing: `/graph` already gives the browser the whole account, so the client could compute
+all of this itself. The routes exist so the kinship rules are written and tested once, in Go, and
+for when culling (ADR-002 ladder) means the client no longer has the whole graph.
+
+| Item | State |
+|---|---|
+| `GET /persons/{id}/descendants` mirrors ancestors: `{person_id, descendants:[{person_id, generations}]}`, each person once at the shortest distance, ordered by generations then id. | implemented; tested on a 14-person family, including a person reachable by two routes (listed once, at the shorter distance) |
+| `GET /persons/{id}/siblings`: `{person_id, siblings:[{person_id, shared_parents}]}`, derived from shared parents, never the person themselves. `shared_parents` is a count (1 or 2), not "full"/"half": one recorded parent cannot be told apart from a half-sibling. | implemented; tested (full, half, cousins excluded, only children, no parents) |
+| `GET /persons/{id}/relationship/{otherId}`: structured, not prose. `relation` (`self`, `ancestor`, `descendant`, `sibling`, `aunt_uncle`, `niece_nephew`, `cousin`) says what the **other** person is to the path person; `steps_person` / `steps_other` are the generations up to the closest common ancestor and are the source of truth; `degree` / `removed` for cousins only; `common_ancestor_ids` lists every ancestor at the best step pair. Unrelated, partners and in-laws get `200` with `related:false` and null fields (the keys are always present). Same person gives `self`. | implemented; 14 kinship cases through HTTP (siblings, half-siblings, three ancestor depths, descendants, aunt/uncle, great-aunt, niece/nephew, first cousins, once removed in both directions), a cousin marriage, and four no-blood-tie cases |
+| Improvements over PoC-1: the SQL returned one arbitrary lowest common ancestor and the Python labels had no direction (`parent/child`, `aunt-uncle / niece-nephew`) and stopped at grandparents. Now the best `(da, db)` pair is chosen deterministically (smallest total, then most balanced, then smaller ancestor id) and all ancestors at that pair are returned. Classification is a pure Go function (`Classify`), unit-tested for every category, both directions, large values, and that asking the other way round gives the opposite relation. | implemented; tested |
+| Limits, stated rather than hidden: only the closest relationship is reported (a longer route through a cousin marriage is ignored; "closest" is by total distance, not strictly "lowest"); blood relations only, so no in-laws or step-relations; unpaginated like ancestors. The recursive queries enumerate paths, not distinct nodes, so repeated cousin marriages multiply them. PoC-1 measured p95 under 1 ms at 50k people on data that included cousin-marriage diamonds (worst-case ancestor fan 66, ADR-001) but not deep repeated pedigree collapse; no depth cap was added because none is needed at this scale. The ego-network / neighbourhood endpoint for culling stays **deferred** until the frontend measures a need. | decision recorded |
+| Two-account tests for all three routes: Bob and Alice each asking about the other's people, and Bob asking about a pair that both belong to Alice (the case no database trigger can stop). Every answer is the same 404 body as asking about nobody, and 401 / 400 are covered. | tested |
+| No migration, no lock: single read statements, so each answer comes from one snapshot. | decision recorded |
+| Found by the reviewer and reproduced first: the tie-break ended in `da`, which depends on which person is asked about, so under pedigree collapse (a's parent is b's great-grandparent and b's parent is a's great-grandparent) both `(a, b)` and `(b, a)` answered "niece_nephew", through different ancestors. The test failed against the old SQL; the tie-break is now the ancestor id and the answers are mirror images. | fixed; `TestRelationshipIsTheMirrorImageWhenTwoRoutesTie` |
+| Mutation checks (9 before the review; each failed named tests, then restored; plus the tie-break change below) | ownership check removed from each of the three routes; `min(depth)` → `max` in descendants; self-exclusion removed from siblings; the shared-parent count replaced by `1`; the best-pair ordering reversed; the aunt/niece comparison flipped (seen by both the unit and the HTTP tests); descendant/ancestor swapped for `steps_person == 0`. Two of my first attempts were malformed (the patch text collided with the tool's separator and broke the build), so I redid them and only the redone runs count. |
+| OpenAPI, `DATA_MODEL.md`, `04`, `famiy-api/CLAUDE.md`, this file | updated; `make api-lint` **not yet run** (owner runs it) |
+
+`go-reviewer` ran on slice 5: no Must-fix findings; the asymmetric tie-break above was its main finding. Not yet done for slice 5: `make api-lint` (owner runs it) and CI.
+
+### Slice 4 — bio and residence (on `origin/main` as `40a04ca`; no PR, so no check run to read)
 | Item | State |
 |---|---|
 | Migration `000007_add_person_bio_residence` (second real use of `new-migration`): nullable `bio` and `residence` text columns with CHECKs `bio_max_len` (2000), `residence_max_len` (200) and `bio_not_blank` / `residence_not_blank`. Up → down → up run against the dev database (6 → 7 → 6 → 7), columns and all four constraints confirmed with `psql` each time. The down migration destroys stored bios and residences (said in its comment). | implemented; round trip run by hand; database-level test (blank values including line breaks, tabs, em space and ideographic space; length in 2-byte and 4-byte characters at and over the limit; INSERT and UPDATE for both columns) |
@@ -66,7 +86,7 @@ Decisions taken (proposed to the owner, who said to use the recommendations): `{
 | Mutation checks (12, each failed named tests, then restored) | domain length check removed; blank → null removed; patch field ignored in `Apply`; the three database CHECKs weakened one at a time; a column dropped from the `INSERT`, from the `UPDATE`, and from the row scan; the field dropped from the PATCH wiring and from the create wiring |
 | OpenAPI, `DATA_MODEL.md`, this file | updated; `make api-lint` **not yet run** (owner runs it) |
 
-Not yet done for slice 4: `go-reviewer` pass, `make api-lint`, CI. Photo remains deferred (needs its
+`go-reviewer` ran on slice 4: no Must-fix findings; its Should-fix items (Unicode-space agreement between domain and database, multi-byte and UPDATE test cases) were applied. Not yet done for slice 4: `make api-lint` (owner runs it) and CI. Photo remains deferred (needs its
 own storage decision).
 
 ### Slice 3 — partnership API (committed to `main` as `d465714`, not pushed when slice 4 began; no PR, so no check run to read)
@@ -239,8 +259,9 @@ Phase 5 slice 1 is implemented (see above). Remaining list, with the agreed orde
    decision and the layout service from ADR-002.
 5. **Deployment phase:** Caddy and TLS, the VM, a migrate step, `TRUSTED_PROXIES`, backups,
    and the real-HTTPS cookie check.
-6. Remaining PoC-1 traversals (descendants, siblings, relationship path) when a feature needs
-   them. (`new-migration` has now been exercised, in slice 3.)
+6. ~~Remaining PoC-1 traversals (descendants, siblings, relationship path)~~ — done in slice 5.
+   The ego network (neighbourhood for culling) is still deferred. (`new-migration` has been
+   exercised, in slices 3 and 4.)
 7. Later / deferred levers: viewport culling + CSS-transform pan/zoom for large trees (PoC-3
    ladder); node duplication for the remarried-and-cross-branch layout case (ADR-002 known
    limitation) — when real data needs them.

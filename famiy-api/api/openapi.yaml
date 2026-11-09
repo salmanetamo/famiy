@@ -352,6 +352,121 @@ paths:
         "404":
           $ref: "#/components/responses/PersonNotFound"
 
+  /persons/{id}/descendants:
+    get:
+      summary: All descendants of a person
+      description: >
+        The mirror of ancestors: walks parent links downward. Each descendant appears once, at
+        its shortest generational distance (child = 1), so a person reachable by two routes (for
+        example after a cousin marriage) is listed once. Ordered by generations, then id. Returns
+        an empty list for a person with no known children. Partners are not descendants.
+      operationId: getDescendants
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "200":
+          description: Descendants, nearest generation first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Descendants" }
+              example:
+                person_id: 1
+                descendants:
+                  - { person_id: 2, generations: 1 }
+                  - { person_id: 3, generations: 2 }
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+
+  /persons/{id}/siblings:
+    get:
+      summary: The siblings of a person
+      description: >
+        Derived, never stored: everyone who shares at least one parent with the person, never the
+        person themselves, ordered by id. shared_parents is how many of the (at most two) parents
+        are shared. It is a count, not a full/half verdict: if only one parent is recorded, a
+        sibling sharing it cannot be told apart from a true half-sibling.
+      operationId: getSiblings
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "200":
+          description: Siblings (possibly none)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Siblings" }
+              example:
+                person_id: 5
+                siblings:
+                  - { person_id: 6, shared_parents: 2 }
+                  - { person_id: 7, shared_parents: 1 }
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+
+  /persons/{id}/relationship/{otherId}:
+    get:
+      summary: How is the other person related, by blood?
+      description: >
+        Derived from the closest common ancestor, never stored. steps_person and steps_other are
+        the generations from each person up to that ancestor (0 means the person is the ancestor);
+        they are the source of truth. relation categorises them and says what the OTHER person is to
+        the person in the path: self, ancestor (parent, grandparent, ...), descendant, sibling,
+        aunt_uncle (a sibling of one of the person's ancestors, so a great-aunt has more steps),
+        niece_nephew, or cousin. degree and removed are set for cousins only (degree 1 = first
+        cousins; removed = difference in generations) and are otherwise null. Asking the other way
+        round flips ancestor/descendant and aunt_uncle/niece_nephew. Wording is the client's job.
+
+
+        Only the closest relationship is reported: when two people are related by more than one
+        route (a cousin marriage), the longer route is ignored. The best pair of step counts is the
+        smallest total, then the most balanced, then the smaller ancestor id, so asking about (a, b) and
+        (b, a) always gives mirror-image answers through the same ancestor. common_ancestor_ids lists
+        every ancestor at exactly that pair, ascending (full siblings list both parents, half-siblings
+        one). "Closest" is by total distance, not strictly "lowest": someone who is both a parent and a
+        grandparent of the same person can appear next to the one below them. Asking about the same
+        person gives relation "self" and an empty common_ancestor_ids.
+
+
+        Blood relations only. Partners and in-laws are not related by this measure: such people get
+        related=false with null fields and an empty common_ancestor_ids.
+      operationId: getRelationship
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+        - name: otherId
+          in: path
+          required: true
+          description: The person whose relationship to the person in the path is asked for
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: The relationship, or related=false
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Relationship" }
+              example:
+                person_id: 5
+                other_id: 9
+                related: true
+                relation: cousin
+                steps_person: 2
+                steps_other: 3
+                degree: 1
+                removed: 1
+                common_ancestor_ids: [1, 2]
+        "400":
+          $ref: "#/components/responses/InvalidId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/PersonNotFound"
+
   /persons/{id}/parents:
     post:
       summary: Add a parent to a person
@@ -836,6 +951,53 @@ components:
             properties:
               person_id: { type: integer, format: int64 }
               generations: { type: integer, minimum: 1 }
+
+    Descendants:
+      type: object
+      required: [person_id, descendants]
+      properties:
+        person_id: { type: integer, format: int64 }
+        descendants:
+          type: array
+          items:
+            type: object
+            required: [person_id, generations]
+            properties:
+              person_id: { type: integer, format: int64 }
+              generations: { type: integer, minimum: 1 }
+
+    Siblings:
+      type: object
+      required: [person_id, siblings]
+      properties:
+        person_id: { type: integer, format: int64 }
+        siblings:
+          type: array
+          items:
+            type: object
+            required: [person_id, shared_parents]
+            properties:
+              person_id: { type: integer, format: int64 }
+              shared_parents: { type: integer, minimum: 1, maximum: 2 }
+
+    Relationship:
+      type: object
+      description: Always has every key. When related is false, relation, steps_*, degree and removed are null.
+      required: [person_id, other_id, related, relation, steps_person, steps_other, degree, removed, common_ancestor_ids]
+      properties:
+        person_id: { type: integer, format: int64 }
+        other_id: { type: integer, format: int64 }
+        related: { type: boolean }
+        relation:
+          type: [string, "null"]
+          enum: [self, ancestor, descendant, sibling, aunt_uncle, niece_nephew, cousin, null]
+        steps_person: { type: [integer, "null"], minimum: 0 }
+        steps_other: { type: [integer, "null"], minimum: 0 }
+        degree: { type: [integer, "null"], minimum: 1, description: Cousins only }
+        removed: { type: [integer, "null"], minimum: 0, description: Cousins only }
+        common_ancestor_ids:
+          type: array
+          items: { type: integer, format: int64 }
 
     Error:
       type: object

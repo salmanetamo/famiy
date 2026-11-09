@@ -21,6 +21,9 @@ func NewHandler(svc *Service, owner httpx.OwnerFunc) *Handler {
 
 func (h *Handler) Routes(r chi.Router) {
 	r.Get("/persons/{id}/ancestors", h.ancestors)
+	r.Get("/persons/{id}/descendants", h.descendants)
+	r.Get("/persons/{id}/siblings", h.siblings)
+	r.Get("/persons/{id}/relationship/{otherId}", h.relationship)
 	r.Post("/persons/{id}/parents", h.addParent)
 	r.Delete("/persons/{id}/parents/{parentId}", h.removeParent)
 	r.Post("/persons/{id}/partners", h.addPartner)
@@ -251,4 +254,114 @@ func (h *Handler) removePartner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type descendantResponse struct {
+	PersonID    int64 `json:"person_id"`
+	Generations int   `json:"generations"`
+}
+
+type descendantsResponse struct {
+	PersonID    int64                `json:"person_id"`
+	Descendants []descendantResponse `json:"descendants"`
+}
+
+func (h *Handler) descendants(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	id, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	ds, err := h.svc.Descendants(r.Context(), ownerID, id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	resp := descendantsResponse{PersonID: id, Descendants: make([]descendantResponse, 0, len(ds))}
+	for _, d := range ds {
+		resp.Descendants = append(resp.Descendants, descendantResponse(d))
+	}
+	httpx.JSON(w, r, http.StatusOK, resp)
+}
+
+type siblingResponse struct {
+	PersonID      int64 `json:"person_id"`
+	SharedParents int   `json:"shared_parents"`
+}
+
+type siblingsResponse struct {
+	PersonID int64             `json:"person_id"`
+	Siblings []siblingResponse `json:"siblings"`
+}
+
+func (h *Handler) siblings(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	id, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	sibs, err := h.svc.Siblings(r.Context(), ownerID, id)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	resp := siblingsResponse{PersonID: id, Siblings: make([]siblingResponse, 0, len(sibs))}
+	for _, s := range sibs {
+		resp.Siblings = append(resp.Siblings, siblingResponse(s))
+	}
+	httpx.JSON(w, r, http.StatusOK, resp)
+}
+
+// relationshipResponse always has the same keys: when the two people share no
+// ancestor, related is false and the derived fields are null.
+type relationshipResponse struct {
+	PersonID          int64   `json:"person_id"`
+	OtherID           int64   `json:"other_id"`
+	Related           bool    `json:"related"`
+	Relation          *string `json:"relation"`
+	StepsPerson       *int    `json:"steps_person"`
+	StepsOther        *int    `json:"steps_other"`
+	Degree            *int    `json:"degree"`
+	Removed           *int    `json:"removed"`
+	CommonAncestorIDs []int64 `json:"common_ancestor_ids"`
+}
+
+func (h *Handler) relationship(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := httpx.RequireOwner(w, r, h.owner)
+	if !ok {
+		return
+	}
+	id, err := httpx.PathID(r)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	otherID, err := httpx.PathParamID(r, "otherId")
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	rel, err := h.svc.Relationship(r.Context(), ownerID, id, otherID)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	resp := relationshipResponse{
+		PersonID: rel.PersonID, OtherID: rel.OtherID, Related: rel.Related,
+		CommonAncestorIDs: rel.CommonAncestorIDs,
+	}
+	if rel.Related {
+		k := rel.Kinship
+		resp.Relation, resp.StepsPerson, resp.StepsOther = &k.Relation, &k.StepsPerson, &k.StepsOther
+		resp.Degree, resp.Removed = k.Degree, k.Removed
+	}
+	httpx.JSON(w, r, http.StatusOK, resp)
 }

@@ -95,3 +95,95 @@ func (p Partnership) Ordered() (a, b int64) {
 	}
 	return p.PartnerID, p.PersonID
 }
+
+// Descendant is a person reachable by walking parent links downward from a
+// start person; Generations is the shortest path length (child = 1).
+type Descendant struct {
+	PersonID    int64
+	Generations int
+}
+
+// Sibling is someone who shares at least one parent with a person. SharedParents
+// is how many of the two possible parents they share (1 or 2). It is a count,
+// not a full/half verdict: when only one parent is recorded, a sibling sharing
+// it cannot be told apart from a true half-sibling.
+type Sibling struct {
+	PersonID      int64
+	SharedParents int
+}
+
+// Relations describe what the OTHER person is to the person asked about.
+const (
+	RelSelf        = "self"
+	RelAncestor    = "ancestor"     // the other is an ancestor (parent, grandparent, ...)
+	RelDescendant  = "descendant"   // the other is a descendant (child, grandchild, ...)
+	RelSibling     = "sibling"      // shares a parent (see Sibling.SharedParents)
+	RelAuntUncle   = "aunt_uncle"   // the other is a sibling of one of the person's ancestors
+	RelNieceNephew = "niece_nephew" // the other is a descendant of one of the person's siblings
+	RelCousin      = "cousin"
+)
+
+// Kinship is the blood relationship derived from two distances to the closest
+// common ancestor: StepsPerson generations up from the person, StepsOther up
+// from the other. The steps are the source of truth; Relation is a category
+// over them. Degree and Removed are set for cousins only (Degree 1 = first
+// cousins; Removed is the difference in generations).
+type Kinship struct {
+	Relation    string
+	StepsPerson int
+	StepsOther  int
+	Degree      *int
+	Removed     *int
+}
+
+// Classify derives the kinship from the generational distances from each
+// person up to their closest common ancestor (0 = the person is that ancestor).
+// It is pure: the database only supplies the two distances, and both are >= 0.
+func Classify(stepsPerson, stepsOther int) Kinship {
+	k := Kinship{StepsPerson: stepsPerson, StepsOther: stepsOther}
+	switch {
+	case stepsPerson == 0 && stepsOther == 0:
+		k.Relation = RelSelf
+	case stepsPerson == 0:
+		k.Relation = RelDescendant // the person is the common ancestor
+	case stepsOther == 0:
+		k.Relation = RelAncestor
+	default:
+		closest := min(stepsPerson, stepsOther)
+		removed := stepsPerson - stepsOther
+		if removed < 0 {
+			removed = -removed
+		}
+		switch {
+		case closest == 1 && removed == 0:
+			k.Relation = RelSibling
+		case closest == 1 && stepsPerson > stepsOther:
+			k.Relation = RelAuntUncle // the other is one generation nearer the ancestor
+		case closest == 1:
+			k.Relation = RelNieceNephew
+		default:
+			degree := closest - 1
+			k.Relation, k.Degree, k.Removed = RelCousin, &degree, &removed
+		}
+	}
+	return k
+}
+
+// CommonAncestry is the closest common ancestry of two people: the best
+// (StepsPerson, StepsOther) pair and every ancestor at exactly that pair.
+type CommonAncestry struct {
+	StepsPerson int
+	StepsOther  int
+	AncestorIDs []int64 // ascending
+}
+
+// Relationship answers "how is the other person related to this one?" by blood.
+// Related is false when the two share no ancestor; partners and in-laws are not
+// considered.
+type Relationship struct {
+	PersonID          int64
+	OtherID           int64
+	Related           bool
+	Kinship           Kinship // meaningful only when Related
+	CommonAncestorIDs []int64
+}

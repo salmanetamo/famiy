@@ -14,6 +14,14 @@ type Repository interface {
 	// RemoveParentLink deletes the edge, or returns ErrLinkNotFound if there is none.
 	RemoveParentLink(ctx context.Context, l ParentLink) error
 	Ancestors(ctx context.Context, personID int64) ([]Ancestor, error)
+	// Descendants mirrors Ancestors, walking downward.
+	Descendants(ctx context.Context, personID int64) ([]Descendant, error)
+	// Siblings returns everyone who shares at least one parent with personID,
+	// ordered by id. A person is never their own sibling.
+	Siblings(ctx context.Context, personID int64) ([]Sibling, error)
+	// CommonAncestry returns the closest common ancestry of two different people,
+	// and false when they share no ancestor.
+	CommonAncestry(ctx context.Context, personID, otherID int64) (CommonAncestry, bool, error)
 
 	// AddPartnership stores the pair (in either order). It returns
 	// ErrDuplicatePartnership if the pair already has one and ErrPersonMissing for
@@ -168,4 +176,57 @@ func (s *Service) RemovePartnership(ctx context.Context, ownerID, personID, part
 		return fmt.Errorf("remove partnership %d-%d: %w", personID, partnerID, err)
 	}
 	return nil
+}
+
+// Descendants returns all descendants of one of ownerID's people, nearest
+// generation first. Links never cross owners, so every descendant is theirs too.
+func (s *Service) Descendants(ctx context.Context, ownerID, personID int64) ([]Descendant, error) {
+	if _, err := s.persons.Get(ctx, ownerID, personID); err != nil {
+		return nil, err
+	}
+	ds, err := s.repo.Descendants(ctx, personID)
+	if err != nil {
+		return nil, fmt.Errorf("descendants of %d: %w", personID, err)
+	}
+	return ds, nil
+}
+
+// Siblings returns the people who share a parent with one of ownerID's people.
+func (s *Service) Siblings(ctx context.Context, ownerID, personID int64) ([]Sibling, error) {
+	if _, err := s.persons.Get(ctx, ownerID, personID); err != nil {
+		return nil, err
+	}
+	sibs, err := s.repo.Siblings(ctx, personID)
+	if err != nil {
+		return nil, fmt.Errorf("siblings of %d: %w", personID, err)
+	}
+	return sibs, nil
+}
+
+// Relationship derives how otherID is related by blood to personID. Both must
+// be ownerID's: a person that is missing or belongs to someone else is reported
+// as person.ErrNotFound, whichever of the two it is. Only the closest
+// relationship is reported; a longer path (for example through a cousin
+// marriage) is ignored. The same person is related to themselves as "self",
+// with no common ancestors listed.
+func (s *Service) Relationship(ctx context.Context, ownerID, personID, otherID int64) (Relationship, error) {
+	if err := s.requireOwnedIDs(ctx, ownerID, personID, otherID); err != nil {
+		return Relationship{}, err
+	}
+	rel := Relationship{PersonID: personID, OtherID: otherID, CommonAncestorIDs: []int64{}}
+	if personID == otherID {
+		rel.Related, rel.Kinship = true, Classify(0, 0)
+		return rel, nil
+	}
+	ca, found, err := s.repo.CommonAncestry(ctx, personID, otherID)
+	if err != nil {
+		return Relationship{}, fmt.Errorf("relationship %d-%d: %w", personID, otherID, err)
+	}
+	if !found {
+		return rel, nil
+	}
+	rel.Related = true
+	rel.Kinship = Classify(ca.StepsPerson, ca.StepsOther)
+	rel.CommonAncestorIDs = ca.AncestorIDs
+	return rel, nil
 }

@@ -1,6 +1,6 @@
 # Data Model — Family Graph
 
-_Last updated: 2026-11-09. Source of truth: `famiy-api/migrations/`. This page explains it;
+_Last updated: 2026-11-10. Source of truth: `famiy-api/migrations/`. This page explains it;
 if they disagree, the migrations win. Schema version: `000007_add_person_bio_residence`._
 
 ## Principles (ADR-001)
@@ -103,8 +103,17 @@ only: edges are inserted or deleted, never updated (a table comment says so).
   guard; `min(depth)` + `GROUP BY` collapses duplicate paths from diamonds such as cousin
   marriages. Each ancestor is returned once at its shortest generational distance.
 - **The whole-account graph** — implemented (`internal/graph`): persons, links and partnerships read in one `REPEATABLE READ, READ ONLY` transaction. An edge's owner is the owner of its parent / `partner_a` person (the `same_owner` triggers make the other end match).
-- **Descendants, siblings, relationship path / LCA, ego network** — queries proven in PoC-1
-  (`pocs/poc1-db-benchmark/sql/queries/`), **not yet implemented** in the API.
+- **Descendants** — implemented (`relationship/postgres.go`): the mirror of ancestors, same
+  `CYCLE` guard and `min(depth)` collapse of duplicate paths.
+- **Siblings** — implemented: everyone sharing at least one parent, with the number of shared
+  parents (1 or 2). A count, not a full/half verdict, because a missing parent record is
+  indistinguishable from a true half-sibling.
+- **Relationship (closest common ancestor)** — implemented: PoC-1's double recursion, changed to
+  keep the best `(da, db)` pair (smallest total, then most balanced, then smaller ancestor id, so the answer is the same whichever person is asked about) and to
+  return every ancestor at exactly that pair ("closest" by total distance, not strictly "lowest"). The recursion enumerates paths, not distinct nodes, so repeated cousin marriages multiply them; fine at this scale, not for a deeply inbred pedigree. The kinship category is derived in Go
+  (`relationship.Classify`) from the two distances. Blood relations only; the closest route wins.
+- **Ego network** (for viewport culling) — proven in PoC-1, **not implemented**; deferred until the
+  frontend measures a need (ADR-002 escalation ladder).
 
 ## Known gaps
 - `given_name_not_blank` (migration `000001`) uses `btrim()`, which strips only spaces, so a given name of just a newline or tab would pass the database constraint. The domain (`strings.TrimSpace`) rejects it first, so the API cannot be used to store one; the constraint is only a weaker backstop than the ones added in `000007`. Verified in `psql`; not yet fixed.
