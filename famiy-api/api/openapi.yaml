@@ -688,6 +688,16 @@ components:
           type: [string, "null"]
           format: date
           description: Must not be before birth_date
+        bio:
+          type: [string, "null"]
+          maxLength: 2000
+          description: >
+            A short biography, up to 2000 characters. Line breaks are kept; surrounding
+            whitespace is trimmed and a blank value is stored as null.
+        residence:
+          type: [string, "null"]
+          maxLength: 200
+          description: Current residence as free text, for example "Casablanca, Morocco". Trimmed; blank means null.
 
     AddPartner:
       type: object
@@ -729,10 +739,12 @@ components:
         birth_date: { type: [string, "null"], format: date, description: "null clears it. Between 1000-01-01 and today" }
         birth_approx: { type: boolean, description: "Cannot be null. true requires a birth_date after the merge" }
         death_date: { type: [string, "null"], format: date, description: "null clears it. Must not be before birth_date" }
+        bio: { type: [string, "null"], maxLength: 2000, description: null or blank clears it }
+        residence: { type: [string, "null"], maxLength: 200, description: null or blank clears it }
 
     Person:
       type: object
-      required: [id, given_name, family_name, birth_date, birth_approx, death_date, created_at]
+      required: [id, given_name, family_name, birth_date, birth_approx, death_date, bio, residence, created_at]
       properties:
         id: { type: integer, format: int64 }
         given_name: { type: string }
@@ -740,10 +752,12 @@ components:
         birth_date: { type: [string, "null"], format: date }
         birth_approx: { type: boolean }
         death_date: { type: [string, "null"], format: date }
+        bio: { type: [string, "null"], description: "Free text about a possibly living person; returned only here, never by GET /graph or search" }
+        residence: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
 
     PersonSummary:
-      description: A person as search and the graph carry them (Person without created_at)
+      description: A person as search and the graph carry them (Person without created_at, bio and residence)
       type: object
       required: [id, given_name, family_name, birth_date, birth_approx, death_date]
       properties:

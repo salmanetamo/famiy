@@ -25,7 +25,7 @@ func NewPgRepository(pool *pgxpool.Pool) *PgRepository {
 // used elsewhere.)
 const personCreateLockClass = 727003
 
-const personColumns = `id, owner_user_id, given_name, family_name, birth_date, birth_approx, death_date, created_at`
+const personColumns = `id, owner_user_id, given_name, family_name, birth_date, birth_approx, death_date, bio, residence, created_at`
 
 func (r *PgRepository) Insert(ctx context.Context, ownerID int64, p Person, maxPersons int) (Person, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -47,10 +47,10 @@ func (r *PgRepository) Insert(ctx context.Context, ownerID int64, p Person, maxP
 		return Person{}, ErrLimitReached
 	}
 	row := tx.QueryRow(ctx, `
-		INSERT INTO person (owner_user_id, given_name, family_name, birth_date, birth_approx, death_date)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO person (owner_user_id, given_name, family_name, birth_date, birth_approx, death_date, bio, residence)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING `+personColumns,
-		ownerID, p.GivenName, p.FamilyName, p.BirthDate, p.BirthApprox, p.DeathDate)
+		ownerID, p.GivenName, p.FamilyName, p.BirthDate, p.BirthApprox, p.DeathDate, p.Bio, p.Residence)
 	out, err := scanPerson(row)
 	if err != nil {
 		return Person{}, fmt.Errorf("insert person: %w", err)
@@ -76,7 +76,7 @@ func (r *PgRepository) Get(ctx context.Context, ownerID, id int64) (Person, erro
 
 func scanPerson(row pgx.Row) (Person, error) {
 	var p Person
-	err := row.Scan(&p.ID, &p.OwnerID, &p.GivenName, &p.FamilyName, &p.BirthDate, &p.BirthApprox, &p.DeathDate, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.OwnerID, &p.GivenName, &p.FamilyName, &p.BirthDate, &p.BirthApprox, &p.DeathDate, &p.Bio, &p.Residence, &p.CreatedAt)
 	return p, err
 }
 
@@ -143,10 +143,12 @@ func (r *PgRepository) Update(ctx context.Context, ownerID, id int64, merge func
 	}
 	out, err := scanPerson(tx.QueryRow(ctx, `
 		UPDATE person
-		SET given_name = $3, family_name = $4, birth_date = $5, birth_approx = $6, death_date = $7
+		SET given_name = $3, family_name = $4, birth_date = $5, birth_approx = $6, death_date = $7,
+		    bio = $8, residence = $9
 		WHERE id = $1 AND owner_user_id = $2
 		RETURNING `+personColumns,
-		id, ownerID, next.GivenName, next.FamilyName, next.BirthDate, next.BirthApprox, next.DeathDate))
+		id, ownerID, next.GivenName, next.FamilyName, next.BirthDate, next.BirthApprox, next.DeathDate,
+		next.Bio, next.Residence))
 	if err != nil {
 		return Person{}, fmt.Errorf("update person: %w", err)
 	}

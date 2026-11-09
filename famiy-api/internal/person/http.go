@@ -40,6 +40,8 @@ type createRequest struct {
 	BirthDate   *string `json:"birth_date"`
 	BirthApprox bool    `json:"birth_approx"`
 	DeathDate   *string `json:"death_date"`
+	Bio         *string `json:"bio"`
+	Residence   *string `json:"residence"`
 }
 
 type personResponse struct {
@@ -49,6 +51,8 @@ type personResponse struct {
 	BirthDate   *string   `json:"birth_date"`
 	BirthApprox bool      `json:"birth_approx"`
 	DeathDate   *string   `json:"death_date"`
+	Bio         *string   `json:"bio"`
+	Residence   *string   `json:"residence"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -78,6 +82,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		BirthDate:   birth,
 		BirthApprox: req.BirthApprox,
 		DeathDate:   death,
+		Bio:         req.Bio,
+		Residence:   req.Residence,
 	})
 	if err != nil {
 		httpx.Error(w, r, err)
@@ -132,6 +138,8 @@ func toResponse(p Person) personResponse {
 		BirthDate:   formatDate(p.BirthDate),
 		BirthApprox: p.BirthApprox,
 		DeathDate:   formatDate(p.DeathDate),
+		Bio:         p.Bio,
+		Residence:   p.Residence,
 		CreatedAt:   p.CreatedAt,
 	}
 }
@@ -207,6 +215,8 @@ type patchRequest struct {
 	BirthDate   field[string] `json:"birth_date"`
 	BirthApprox field[bool]   `json:"birth_approx"`
 	DeathDate   field[string] `json:"death_date"`
+	Bio         field[string] `json:"bio"`
+	Residence   field[string] `json:"residence"`
 }
 
 func (req patchRequest) toPatch() (Patch, error) {
@@ -223,10 +233,21 @@ func (req patchRequest) toPatch() (Patch, error) {
 	if req.BirthApprox.Present {
 		p.BirthApprox = &req.BirthApprox.Value
 	}
-	if req.FamilyName.Present {
-		p.FamilyName.Set = true
-		if !req.FamilyName.Null {
-			p.FamilyName.Value = &req.FamilyName.Value
+	for _, t := range []struct {
+		in  field[string]
+		out *Nullable[string]
+	}{
+		{req.FamilyName, &p.FamilyName},
+		{req.Bio, &p.Bio},
+		{req.Residence, &p.Residence},
+	} {
+		if !t.in.Present {
+			continue
+		}
+		t.out.Set = true
+		if !t.in.Null {
+			v := t.in.Value
+			t.out.Value = &v
 		}
 	}
 	for _, d := range []struct {

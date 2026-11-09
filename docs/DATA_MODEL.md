@@ -1,7 +1,7 @@
 # Data Model — Family Graph
 
-_Last updated: 2026-11-06. Source of truth: `famiy-api/migrations/`. This page explains it;
-if they disagree, the migrations win. Schema version: `000006_add_partnership_kind_check`._
+_Last updated: 2026-11-09. Source of truth: `famiy-api/migrations/`. This page explains it;
+if they disagree, the migrations win. Schema version: `000007_add_person_bio_residence`._
 
 ## Principles (ADR-001)
 - Kinship is a **DAG**, not a tree: a person has up to two parents.
@@ -20,9 +20,11 @@ if they disagree, the migrations win. Schema version: `000006_add_partnership_ki
 | `birth_date` | date, null | ≥ 1000-01-01 (CHECK); the domain also rejects future dates |
 | `birth_approx` | boolean, not null, default false | models "approximate date"; the domain additionally requires `birth_date` when true |
 | `death_date` | date, null | ≥ 1000-01-01 and not before `birth_date` (CHECK); the domain also rejects future dates |
+| `bio` | text, null | short biography, ≤ 2000 characters, may contain line breaks (CHECK `bio_max_len`, `bio_not_blank`); blank is stored as NULL |
+| `residence` | text, null | current residence, free text, ≤ 200 characters (CHECK `residence_max_len`, `residence_not_blank`); blank is stored as NULL |
 | `created_at` | timestamptz, not null, default now() | |
 
-Not modelled yet: photo, bio, residence, owner/tree, sex. Each arrives as its own migration.
+Not modelled yet: photo, tree, sex. `bio` and `residence` are the first free-text personal data in the schema (possibly about living people; see the privacy question in the PRD). They are returned only by the per-person endpoints, never by `/graph` or search. Each arrives as its own migration.
 
 ### `app_user` and `session` (ADR-004)
 `app_user(id, email, password_hash, created_at)` — `email` is stored trimmed and lower-cased
@@ -70,6 +72,7 @@ order of the pair is accepted and `partner_a < partner_b` is never visible to cl
 | Partnership kind is one of three values | `CHECK` `partnership_kind_allowed` | `ValidKind` → `validation_failed` |
 | Death not before birth | `CHECK` | `person.New` → `validation_failed` |
 | Given name not blank / names ≤ 200 chars / dates ≥ 1000-01-01 | `CHECK` | `person.New` → `validation_failed` |
+| Bio ≤ 2000 and residence ≤ 200 characters; neither is blank | `CHECK` (blank = no non-whitespace character, tested with `~ '\S'`) | `person.New` → `validation_failed`; blank is normalised to NULL |
 
 ### The parent-link trigger (`enforce_parent_link_rules`)
 A CHECK cannot count rows or walk a graph, so one `BEFORE INSERT` trigger enforces the two
@@ -104,6 +107,7 @@ only: edges are inserted or deleted, never updated (a table comment says so).
   (`pocs/poc1-db-benchmark/sql/queries/`), **not yet implemented** in the API.
 
 ## Known gaps
+- `given_name_not_blank` (migration `000001`) uses `btrim()`, which strips only spaces, so a given name of just a newline or tab would pass the database constraint. The domain (`strings.TrimSpace`) rejects it first, so the API cannot be used to store one; the constraint is only a weaker backstop than the ones added in `000007`. Verified in `psql`; not yet fixed.
 - Acyclicity is enforced on insert. Deleting an edge cannot create a cycle, so no check is
   needed there; the CTE keeps its `CYCLE` clause as defence in depth.
 - Ownership is per account (`owner_user_id`), not per tree. When collaboration or trees arrive

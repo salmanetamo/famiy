@@ -82,5 +82,5 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 
 ## Not built yet (planned)
 Email verification and password reset, the
-`famiy-app` frontend (React + TypeScript; elkjs layout + SVG per ADR-002), photos, residence,
+`famiy-app` frontend (React + TypeScript; elkjs layout + SVG per ADR-002), photos,
 and a per-tree ownership model (ownership is per account for now, ADR-004).

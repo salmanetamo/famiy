@@ -8,7 +8,7 @@ Phases 1–4 are done. Planned numbering: Phase 6 = frontend (`famiy-app/`), Pha
 Phase 5 slices, in order: (1) read model, (2) person update/delete, (3) partnership API,
 (4) bio and residence (first real use of `new-migration`), (5) further derived relationships
 only if a feature needs them. Photo is deferred to its own decision. Slice 1 is merged (PR #2),
-slice 2 is on `main`, slice 3 is in the working tree.
+slices 2 and 3 are committed to `main` (3 not yet pushed), slice 4 is in the working tree.
 
 ## Current milestone
 The backend foundation is on `main` (PR #1, 13 commits, merged 2026-11-04). The `check` job
@@ -37,7 +37,7 @@ partnerships per person; names repeat, so the gzip ratio is optimistic; request 
 | 10,000 | 14,998 / 4,000 | 1.94 MB | 163 KB | ~45–54 ms |
 
 `go-reviewer` ran once on slice 1. It found a non-UTF-8 byte in `openapi.yaml` (my edit script used the Windows default encoding) and a 500 for a search `q` containing NUL or invalid UTF-8; both are fixed, the second with tests that failed before the fix. Slice 1 is merged and the PR's CI passed; `make api-lint` was left to the owner.
-Slices 4–5: **proposed**, not started. Nothing in Phase 5 is deployed.
+Slice 5: **proposed**, not started. Nothing in Phase 5 is deployed.
 
 ### Slice 2 — person update and delete (on `main` as `db49391`; no PR, so no PR check run to read, and the push-to-`main` run was not read)
 | Item | State |
@@ -54,7 +54,22 @@ Slices 4–5: **proposed**, not started. Nothing in Phase 5 is deployed.
 Decisions taken (proposed to the owner, who said to use the recommendations): `{}` is a no-op
 200, not a 400; DELETE returns a bare 204 (clients refetch `/graph`).
 
-### Slice 3 — partnership API (working tree on `main`, uncommitted)
+### Slice 4 — bio and residence (working tree on `main`, uncommitted)
+| Item | State |
+|---|---|
+| Migration `000007_add_person_bio_residence` (second real use of `new-migration`): nullable `bio` and `residence` text columns with CHECKs `bio_max_len` (2000), `residence_max_len` (200) and `bio_not_blank` / `residence_not_blank`. Up → down → up run against the dev database (6 → 7 → 6 → 7), columns and all four constraints confirmed with `psql` each time. The down migration destroys stored bios and residences (said in its comment). | implemented; round trip run by hand; database-level test (blank values including line breaks, tabs, em space and ideographic space; length in 2-byte and 4-byte characters at and over the limit; INSERT and UPDATE for both columns) |
+| `POST /persons` accepts `bio` and `residence`; `GET /persons/{id}`, POST and PATCH return them (nullable). `PATCH` treats both like `family_name` (absent = unchanged, `null` or blank clears, value replaces). Validation lives in `person.New`, shared by create and patch: trimmed, blank → null, length in characters, NUL and invalid UTF-8 refused, line breaks kept (also in `residence`; no rule against them). | implemented; unit tables, HTTP round trips, rejected inputs |
+| Deliberately **not** in `/graph` nor in search (graph nodes stay layout-only; search stays by name, bio search is deferred in the PRD). | tested: neither response contains the text or the keys, and a word found only in a bio matches nobody |
+| Two-account test: Bob's GET and PATCH of Alice's person are a plain `person_not_found` that contains none of her text; her bio and residence are unchanged afterwards. | tested |
+| Domain and database agree on "blank" for every Unicode space probed (reviewer queried PostgreSQL 16 `en_US.utf8`): where they differ (U+00A0, U+0085) the domain is stricter, so the API never stores them; there is no value the domain accepts and the database refuses. The database's `\S` follows the server locale, which is why the domain's `TrimSpace` is the first gate. | tested (domain table has the Unicode spaces; database test has em space and ideographic space) |
+| A bug the new test found in my own first draft: `bio_not_blank` used `btrim()`, which strips only spaces, so a bio of just a line break passed the constraint. Fixed in the (still unmerged) migration by testing for a non-whitespace character; down and up were re-run. | fixed |
+| Mutation checks (12, each failed named tests, then restored) | domain length check removed; blank → null removed; patch field ignored in `Apply`; the three database CHECKs weakened one at a time; a column dropped from the `INSERT`, from the `UPDATE`, and from the row scan; the field dropped from the PATCH wiring and from the create wiring |
+| OpenAPI, `DATA_MODEL.md`, this file | updated; `make api-lint` **not yet run** (owner runs it) |
+
+Not yet done for slice 4: `go-reviewer` pass, `make api-lint`, CI. Photo remains deferred (needs its
+own storage decision).
+
+### Slice 3 — partnership API (committed to `main` as `d465714`, not pushed when slice 4 began; no PR, so no check run to read)
 | Item | State |
 |---|---|
 | `POST /persons/{id}/partners` `{partner_id, kind?}` → 201 `{partner_id, kind}`; `PATCH /persons/{id}/partners/{partnerId}` `{kind}` → 200 (merge patch: `{}` returns the partnership, `null` is a 400); `DELETE …/{partnerId}` → 204. Person-centred routes like `/parents`; either order of the pair is the same partnership, so `partner_a < partner_b` never reaches a client. In the `relationship` module. No `GET` list route: `/graph` already carries partnerships. | implemented; unit, repository, HTTP and two-account tests |
@@ -66,7 +81,7 @@ Decisions taken (proposed to the owner, who said to use the recommendations): `{
 | Mutation checks (each fails named tests, then restored) | ownership check removed from add / update / remove, one route at a time → `TestPartnerRoutesCannotReachAnotherAccount` subtests for that route fail; canonical ordering removed → four tests fail including the concurrency test; domain allowlist removed → `TestPartnershipValidate` fails; the database CHECK weakened to `true` → `TestDatabaseEnforcesPartnershipKind` fails |
 | OpenAPI, `04`, `DATA_MODEL.md`, `famiy-api/CLAUDE.md` | updated; `make api-lint` **not yet run** (owner runs it) |
 
-Not yet done for slice 3: `go-reviewer` pass, `make api-lint`, CI.
+`go-reviewer` ran on slice 3: no Must-fix findings. It found that `kind: null` on POST silently meant the default while PATCH refused it; both now share one parser and refuse it (new test, mutation-checked). Not yet done for slice 3: `make api-lint` (owner runs it) and CI.
 
 ## Phase 4 outcome — proposed / implemented / tested / deployed
 Original objective: a Go + Postgres project proven end to end by one thin vertical slice, plus
@@ -151,7 +166,7 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
   - *Partnership `kind` (slice 3, implemented):* a small validated allowlist (for example `marriage`,
     `partnership`, `other`) enforced by CHECK and in the domain; start/end dates deferred (additive
     nullable columns later).
-  - *Profile fields (slice 4, proposed):* bio and residence as small text columns with length
+  - *Profile fields (slice 4, implemented):* bio and residence as small text columns with length
     CHECKs via `new-migration`; photo deferred and needs its own storage decision.
 
 ## Experiments in progress
@@ -201,6 +216,16 @@ None.
 - **`/graph` is the whole account:** bounded only by the person cap. Past roughly 10k people the
   payload (about 2 MB raw at 10k) and the browser, not the database, become the limit; an
   ego-network endpoint is the planned relief.
+- **Free-text personal data:** `bio` (≤ 2000 characters) and `residence` (≤ 200) are the first free
+  text about possibly living people. They stay private to the owner (no sharing exists), are
+  returned only by the per-person endpoints. The request log records method, path, status, size and
+  request id only, so request bodies and query strings are not logged. An unexpected database error
+  is logged with its error text; pgx check-violation text carries the message and SQLSTATE, not the
+  row values (inferred, not verified), and it can only occur if the database refuses a value the
+  domain accepted. The retention and
+  living-relatives question in the PRD is still open.
+- **`given_name_not_blank` is a weaker backstop than it looks** (see `DATA_MODEL.md` Known gaps):
+  `btrim()` strips only spaces. The domain protects the API; a one-line migration could tighten it.
 - **Per-owner advisory lock on person creation** (`int32(owner id)` as the key): serialises one
   account's creates only. A collision between two huge owner ids would only add waiting.
 

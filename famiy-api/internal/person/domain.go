@@ -14,7 +14,9 @@ import (
 
 // Limits. The database repeats them as CHECK constraints (migration 000002).
 const (
-	MaxNameLen = 200 // characters, per name field
+	MaxNameLen      = 200  // characters, per name field
+	MaxBioLen       = 2000 // characters; the bio may span several lines
+	MaxResidenceLen = 200  // characters
 )
 
 // MinDate is the earliest date accepted for births and deaths. It keeps input
@@ -47,6 +49,8 @@ type Person struct {
 	BirthDate   *time.Time
 	BirthApprox bool
 	DeathDate   *time.Time
+	Bio         *string // short biography; nil when empty
+	Residence   *string // current residence as free text; nil when empty
 	CreatedAt   time.Time
 }
 
@@ -57,6 +61,8 @@ type Input struct {
 	BirthDate   *time.Time
 	BirthApprox bool
 	DeathDate   *time.Time
+	Bio         *string
+	Residence   *string
 }
 
 // New validates in and returns a Person ready to persist (ID and CreatedAt are
@@ -88,6 +94,11 @@ func New(in Input, now time.Time) (Person, error) {
 		}
 	}
 
+	bio, bad := cleanOptionalText("bio", in.Bio, MaxBioLen)
+	problems = append(problems, bad...)
+	residence, bad := cleanOptionalText("residence", in.Residence, MaxResidenceLen)
+	problems = append(problems, bad...)
+
 	latest := now.UTC().AddDate(0, 0, 1)
 	problems = append(problems, checkDate("birth_date", in.BirthDate, latest)...)
 	problems = append(problems, checkDate("death_date", in.DeathDate, latest)...)
@@ -104,10 +115,31 @@ func New(in Input, now time.Time) (Person, error) {
 	return Person{
 		GivenName:   given,
 		FamilyName:  family,
+		Bio:         bio,
+		Residence:   residence,
 		BirthDate:   in.BirthDate,
 		BirthApprox: in.BirthApprox,
 		DeathDate:   in.DeathDate,
 	}, nil
+}
+
+// cleanOptionalText trims an optional free-text field and turns a blank value
+// into nil (one representation of "nothing"). It reports why a value cannot be
+// stored: not valid text, or longer than maxLen characters. Line breaks are kept.
+func cleanOptionalText(field string, in *string, maxLen int) (*string, []string) {
+	if in == nil {
+		return nil, nil
+	}
+	v := strings.TrimSpace(*in)
+	switch {
+	case !validText(v):
+		return nil, []string{field + " must be valid text"}
+	case v == "":
+		return nil, nil
+	case utf8.RuneCountInString(v) > maxLen:
+		return nil, []string{fmt.Sprintf("%s must be at most %d characters", field, maxLen)}
+	}
+	return &v, nil
 }
 
 // validText reports whether s can be stored in a PostgreSQL text column, which
@@ -131,6 +163,8 @@ type Patch struct {
 	BirthDate   Nullable[time.Time]
 	BirthApprox *bool
 	DeathDate   Nullable[time.Time]
+	Bio         Nullable[string]
+	Residence   Nullable[string]
 }
 
 // Apply returns the Input that results from applying p to cur. It does not
@@ -142,6 +176,8 @@ func (p Patch) Apply(cur Person) Input {
 		BirthDate:   cur.BirthDate,
 		BirthApprox: cur.BirthApprox,
 		DeathDate:   cur.DeathDate,
+		Bio:         cur.Bio,
+		Residence:   cur.Residence,
 	}
 	if p.GivenName != nil {
 		in.GivenName = *p.GivenName
@@ -157,6 +193,12 @@ func (p Patch) Apply(cur Person) Input {
 	}
 	if p.DeathDate.Set {
 		in.DeathDate = p.DeathDate.Value
+	}
+	if p.Bio.Set {
+		in.Bio = p.Bio.Value
+	}
+	if p.Residence.Set {
+		in.Residence = p.Residence.Value
 	}
 	return in
 }
