@@ -1,4 +1,4 @@
-/** Marks the toolbar and the selection summary, which sit on top of the pannable graph. */
+/** Marks the toolbar, which sits on top of the pannable graph. */
 export const GRAPH_CONTROLS_ATTRIBUTE = 'data-graph-controls';
 
 /**

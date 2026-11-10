@@ -1,0 +1,48 @@
+.search {
+  position: relative;
+  width: min(20rem, 100%);
+}
+
+.input {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
+}
+
+.popup {
+  position: absolute;
+  z-index: 3;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  border: 1px solid var(--graph-card-stroke);
+  border-radius: 6px;
+  background: var(--color-bg);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option,
+.activeOption {
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.activeOption {
+  background: var(--graph-selected-bg);
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.note {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-muted);
+}

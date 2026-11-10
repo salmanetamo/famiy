@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Person } from './family';
-import { displayName, lifespan, personLabel, truncate } from './format';
+import { displayName, formatDate, lifespan, personLabel, truncate } from './format';
 
 const base: Person = {
   id: 1,
@@ -57,5 +57,21 @@ describe('truncate', () => {
 
   it('does not leave a space before the ellipsis', () => {
     expect(truncate('Ada Lovelace', 5)).toBe('Ada…');
+  });
+});
+
+describe('formatDate', () => {
+  it('writes a full date out, without the time zone moving the day', () => {
+    expect(formatDate('1930-04-12')).toBe('12 April 1930');
+    expect(formatDate('2001-01-01')).toBe('1 January 2001');
+    expect(formatDate('2001-12-31')).toBe('31 December 2001');
+  });
+
+  it('shows only the year for an approximate date, whose month and day mean nothing', () => {
+    expect(formatDate('1930-01-01', true)).toBe('c. 1930');
+  });
+
+  it('returns text it cannot read unchanged instead of "Invalid Date"', () => {
+    expect(formatDate('not-a-date')).toBe('not-a-date');
   });
 });

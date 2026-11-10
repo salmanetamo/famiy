@@ -1,9 +1,10 @@
 import type { ElkNode } from 'elkjs/lib/elk-api';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LayoutEngine } from '../layout/types';
-import { errorResponse, jsonResponse, renderWithClient, stubFetch } from '../test-utils';
+import { createQueryClient } from '../queryClient';
+import { alice, errorResponse, jsonResponse, renderWithClient, stubFetch } from '../test-utils';
 import { apiGraphFrom, edgeCases, emptyGraph, messy } from '../test/fixtures';
 import { createInlineEngine } from '../test/inlineEngine';
 import { GraphScreen } from './GraphScreen';
@@ -15,11 +16,29 @@ afterEach(() => {
 const engine = createInlineEngine();
 const getEngine = () => engine;
 
-function renderScreen(family = messy, getLayoutEngine: () => LayoutEngine = getEngine) {
+function renderScreen(
+  family = messy,
+  getLayoutEngine: () => LayoutEngine = getEngine,
+  detailResponse?: (id: number) => Response | Promise<Response>,
+) {
   const { api, idOf } = apiGraphFrom(family);
-  stubFetch(() => jsonResponse(200, api));
+  const calls = stubFetch((call) => {
+    const detail = /\/persons\/(\d+)$/.exec(call.path);
+    if (detail?.[1] !== undefined) {
+      if (detailResponse) return detailResponse(Number(detail[1]));
+      const summary = api.persons.find((p) => String(p.id) === detail[1]);
+      if (!summary) return errorResponse(404, 'not_found');
+      return jsonResponse(200, {
+        ...summary,
+        bio: null,
+        residence: null,
+        created_at: '2026-11-01T10:00:00Z',
+      });
+    }
+    return jsonResponse(200, api);
+  });
   renderWithClient(<GraphScreen getLayoutEngine={getLayoutEngine} />);
-  return { idOf };
+  return { idOf, calls };
 }
 
 const people = () => [...document.querySelectorAll<SVGGElement>('[data-person-id]')];
@@ -47,6 +66,12 @@ const translateOf = (text: string): [number, number] => {
   const [x, y] = numbersIn(/translate\(([^)]*)\)/.exec(text)?.[1] ?? '');
   return [x ?? NaN, y ?? NaN];
 };
+
+// the search box is the first tab stop; the next one is the graph
+async function tabIntoGraph() {
+  await userEvent.tab();
+  await userEvent.tab();
+}
 
 async function waitForPeople(count: number) {
   await waitFor(() => {
@@ -148,7 +173,7 @@ describe('GraphView', () => {
     await userEvent.click(ali);
     expect(ali).toHaveAttribute('aria-pressed', 'true');
     expect(ali).toHaveAccessibleName('Ali Diallo, c. 1982');
-    expect(screen.getByText('Ali Diallo', { selector: 'strong' })).toBeInTheDocument(); // the summary
+    expect(screen.getByRole('heading', { name: 'Ali Diallo' })).toBeInTheDocument(); // the panel
     expect(people().filter((p) => p.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
 
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
@@ -170,7 +195,7 @@ describe('GraphView', () => {
   it('moves between relatives with the arrow keys and selects with Enter', async () => {
     const { idOf } = renderScreen();
     await waitForPeople(12);
-    await userEvent.tab(); // into the graph: Abou, the eldest
+    await tabIntoGraph(); // into the graph: Abou, the eldest
     expect(node(idOf.g1 ?? -1)).toHaveFocus();
     await userEvent.keyboard('{ArrowDown}'); // eldest child: Idi (1958) before Nana (1961)
     expect(node(idOf.p1 ?? -1)).toHaveFocus();
@@ -187,7 +212,7 @@ describe('GraphView', () => {
   it('stays put when there is nowhere to go, and keeps one tab stop after moving', async () => {
     const { idOf } = renderScreen();
     await waitForPeople(12);
-    await userEvent.tab();
+    await tabIntoGraph();
     await userEvent.keyboard('{ArrowUp}'); // a founder has no parent
     expect(node(idOf.g1 ?? -1)).toHaveFocus();
     await userEvent.keyboard('{ArrowDown}');
@@ -197,7 +222,7 @@ describe('GraphView', () => {
   it('does not move focus on Shift+arrow, which pans the view instead', async () => {
     const { idOf } = renderScreen();
     await waitForPeople(12);
-    await userEvent.tab();
+    await tabIntoGraph();
     const before = world().style.transform;
     await userEvent.keyboard('{Shift>}{ArrowRight}{/Shift}');
     expect(node(idOf.g1 ?? -1)).toHaveFocus();
@@ -209,7 +234,7 @@ describe('GraphView', () => {
     await waitForPeople(12);
     const fitted = scaleOf();
     expect(fitted).toBeGreaterThan(0.2);
-    await userEvent.tab();
+    await tabIntoGraph();
     await userEvent.keyboard('+');
     expect(scaleOf()).toBeCloseTo(fitted * 1.25, 5);
     await userEvent.keyboard('-');
@@ -500,7 +525,7 @@ describe('the tab stop follows where focus really is', () => {
   it('moves to the person an arrow key just focused, and the old one stops being a tab stop', async () => {
     const { idOf } = renderScreen();
     await waitForPeople(12);
-    await userEvent.tab(); // Abou, the eldest
+    await tabIntoGraph(); // Abou, the eldest
     const abou = node(idOf.g1 ?? -1);
     expect(abou).toHaveFocus();
     await userEvent.keyboard('{ArrowDown}'); // Idi
@@ -509,5 +534,262 @@ describe('the tab stop follows where focus really is', () => {
     expect(idi.tabIndex).toBe(0);
     expect(abou.tabIndex).toBe(-1);
     expect(people().filter((p) => p.tabIndex === 0)).toHaveLength(1);
+  });
+});
+
+describe('finding a person by name (slice 3)', () => {
+  const search = () => screen.getByRole('combobox', { name: 'Find a person' });
+
+  it('lists matches as the user types, labelled like the cards', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'ali');
+    expect(search()).toHaveAttribute('aria-expanded', 'true');
+    const options = within(screen.getByRole('listbox')).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['Ali Diallo, c. 1982']);
+    expect(screen.getByText('1 person found')).toBeInTheDocument();
+  });
+
+  it('picks with the arrow keys and Enter: selects, opens the panel, clears the box, focuses the card', async () => {
+    const { idOf } = renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'diallo');
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}'); // third match in family/given order
+    const picked = people().filter((p) => p.getAttribute('aria-pressed') === 'true');
+    expect(picked).toHaveLength(1);
+    const pickedId = Number(picked[0]?.dataset.personId);
+    expect(pickedId).not.toBe(idOf.g1); // not the first match, so the arrows really moved
+    expect(search()).toHaveValue('');
+    expect(search()).toHaveAttribute('aria-expanded', 'false');
+    expect(picked[0]).toHaveFocus();
+    expect(screen.getByRole('region')).toBeInTheDocument();
+  });
+
+  it('tells assistive technology which result is active, and moves it with the arrows', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'diallo');
+    const options = screen.getAllByRole('option');
+    expect(options[0]).toHaveAttribute('aria-selected', 'true');
+    expect(search()).toHaveAttribute('aria-activedescendant', options[0]?.id);
+    await userEvent.keyboard('{ArrowDown}');
+    expect(options[1]).toHaveAttribute('aria-selected', 'true');
+    expect(options[0]).toHaveAttribute('aria-selected', 'false');
+    expect(search()).toHaveAttribute('aria-activedescendant', options[1]?.id);
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}'); // wraps to the last result
+    expect(options.at(-1)).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('closes the list when focus leaves the box', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'ali');
+    expect(screen.getByRole('option')).toBeInTheDocument();
+    await userEvent.tab();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+  });
+
+  it('picks with a click on a result', async () => {
+    const { idOf } = renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'umar');
+    await userEvent.click(screen.getByRole('option', { name: /Umar Diallo/ }));
+    expect(node(idOf.d1 ?? -1)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: 'Umar Diallo' })).toBeInTheDocument();
+  });
+
+  it('centres the view on the person it jumped to', async () => {
+    const { idOf } = renderScreen();
+    await waitForPeople(12);
+    const umar = node(idOf.d1 ?? -1);
+    await userEvent.type(search(), 'umar{Enter}');
+    await waitFor(() => {
+      const [x, y] = translateOf(umar.getAttribute('transform') ?? '');
+      const [tx, ty] = translateOf(world().style.transform);
+      const k = scaleOf();
+      expect(x * k + 80 * k + tx).toBeCloseTo(400, 0);
+      expect(y * k + 28 * k + ty).toBeCloseTo(300, 0);
+    });
+  });
+
+  it('closes the list on Escape, and clears the text on a second Escape', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'ali');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    expect(search()).toHaveValue('ali');
+    await userEvent.keyboard('{Escape}');
+    expect(search()).toHaveValue('');
+  });
+
+  it('stops the browser clearing the text on Escape itself (a search input does by default)', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'ali');
+    // fireEvent returns false when a handler called preventDefault
+    expect(fireEvent.keyDown(search(), { key: 'Escape' })).toBe(false);
+  });
+
+  it('says so when nobody matches, and does not pick anything on Enter', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'zzz{Enter}');
+    expect(screen.getByText(/No one matches/)).toBeInTheDocument();
+    expect(screen.getByText('No one found')).toBeInTheDocument();
+    expect(people().filter((p) => p.getAttribute('aria-pressed') === 'true')).toHaveLength(0);
+  });
+
+  it('lists at most 8 and says how many more there are', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.type(search(), 'a'); // 12 people have an "a" somewhere in their name
+    expect(screen.getAllByRole('option')).toHaveLength(8);
+    expect(screen.getByText(/4 more/)).toBeInTheDocument();
+  });
+
+  it('reaches the graph with Tab after the search box', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    await userEvent.tab();
+    expect(search()).toHaveFocus();
+    await userEvent.tab();
+    expect(people().find((p) => p === document.activeElement)).toBeDefined();
+  });
+});
+
+describe('the detail panel (slice 3)', () => {
+  const { api: messyApi } = apiGraphFrom(messy);
+  const detail = (id: number, extra: Record<string, unknown> = {}) =>
+    jsonResponse(200, {
+      ...messyApi.persons.find((p) => p.id === id),
+      bio: null,
+      residence: null,
+      created_at: '2026-11-01T10:00:00Z',
+      ...extra,
+    });
+  const panel = () => screen.getByRole('region');
+
+  it('is not shown until someone is selected, and no detail is requested then', async () => {
+    const { calls } = renderScreen();
+    await waitForPeople(12);
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+    expect(calls.filter((c) => c.path.includes('/persons/'))).toHaveLength(0);
+  });
+
+  it('shows the summary and relatives from the graph straight away', async () => {
+    const { idOf } = renderScreen(messy, getEngine, () => new Promise<Response>(() => undefined));
+    await waitForPeople(12);
+    await userEvent.click(node(idOf.c1 ?? -1));
+    const inPanel = within(panel());
+    expect(inPanel.getByRole('heading', { name: 'Ali Diallo' })).toBeInTheDocument();
+    expect(inPanel.getByText('c. 1982', { selector: 'dd' })).toBeInTheDocument();
+    for (const name of [
+      'Idi Diallo, c. 1958', // parent
+      'Rama, c. 1960', // parent
+      'Sala, c. 1984', // partner
+      'Umar Diallo, c. 2008', // child
+    ]) {
+      expect(inPanel.getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(inPanel.getByText('Loading more details…')).toBeInTheDocument();
+  });
+
+  it('fills in residence and notes when they arrive, as plain text', async () => {
+    const bio = 'Raised in <b>Kayes</b>.\nLine two <script>alert(1)</script>';
+    const { idOf, calls } = renderScreen(messy, getEngine, (id) =>
+      detail(id, { bio, residence: 'Bamako' }),
+    );
+    await waitForPeople(12);
+    await userEvent.click(node(idOf.c1 ?? -1));
+    expect(await within(panel()).findByText('Bamako')).toBeInTheDocument();
+    const notes = within(panel()).getByText(/Raised in/);
+    expect(notes.textContent).toBe(bio);
+    expect(notes.querySelector('b')).toBeNull();
+    expect(notes.querySelector('script')).toBeNull();
+    expect(notes).toHaveClass(/bio/);
+    expect(within(panel()).queryByText('Loading more details…')).not.toBeInTheDocument();
+    const requested = calls.filter((c) => c.path.includes('/persons/'));
+    expect(requested.map((c) => c.path)).toEqual([`/api/persons/${String(idOf.c1)}`]);
+  });
+
+  it('keeps the summary and offers a retry when the details cannot be loaded', async () => {
+    let healthy = false;
+    const { idOf } = renderScreen(messy, getEngine, (id) =>
+      healthy ? detail(id, { residence: 'Bamako' }) : errorResponse(500, 'internal', 'boom'),
+    );
+    await waitForPeople(12);
+    await userEvent.click(node(idOf.c1 ?? -1));
+    const alert = await within(panel()).findByRole('alert');
+    expect(alert).toHaveTextContent('Could not load more details');
+    expect(within(panel()).getByRole('heading', { name: 'Ali Diallo' })).toBeInTheDocument();
+    healthy = true;
+    await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(await within(panel()).findByText('Bamako')).toBeInTheDocument();
+    expect(within(panel()).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it("never shows one person's notes under another person", async () => {
+    const { idOf } = renderScreen(messy, getEngine, (id) =>
+      detail(id, { bio: `notes ${String(id)}` }),
+    );
+    await waitForPeople(12);
+    await userEvent.click(node(idOf.c1 ?? -1));
+    expect(await within(panel()).findByText(`notes ${String(idOf.c1)}`)).toBeInTheDocument();
+    await userEvent.click(node(idOf.c2 ?? -1));
+    expect(within(panel()).getByRole('heading', { name: 'Hawa Diallo' })).toBeInTheDocument();
+    expect(within(panel()).queryByText(`notes ${String(idOf.c1)}`)).not.toBeInTheDocument();
+    expect(await within(panel()).findByText(`notes ${String(idOf.c2)}`)).toBeInTheDocument();
+  });
+
+  it('goes to a relative when their name is pressed: selects and focuses them', async () => {
+    const { idOf } = renderScreen();
+    await waitForPeople(12);
+    await userEvent.click(node(idOf.c1 ?? -1));
+    await userEvent.click(within(panel()).getByRole('button', { name: 'Idi Diallo, c. 1958' }));
+    const idi = node(idOf.p1 ?? -1);
+    expect(idi).toHaveAttribute('aria-pressed', 'true');
+    expect(node(idOf.c1 ?? -1)).toHaveAttribute('aria-pressed', 'false');
+    expect(within(panel()).getByRole('heading', { name: 'Idi Diallo' })).toBeInTheDocument();
+    expect(idi).toHaveFocus();
+  });
+
+  it('says so when a person has no recorded relatives', async () => {
+    const solo = {
+      persons: [{ key: 'solo', given_name: 'Solo', family_name: null, birth_year: null }],
+      parents: [],
+      partners: [],
+    };
+    renderScreen(solo, getEngine, () => errorResponse(500, 'internal'));
+    await waitForPeople(1);
+    await userEvent.click(node(1));
+    expect(within(panel()).getByText('No relatives are recorded yet.')).toBeInTheDocument();
+  });
+
+  it('closes with Escape from the graph', async () => {
+    const { idOf } = renderScreen();
+    await waitForPeople(12);
+    const ali = node(idOf.c1 ?? -1);
+    await userEvent.click(ali);
+    ali.focus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+  });
+
+  it('ends the session when the details request says the user is signed out', async () => {
+    const { api } = apiGraphFrom(messy);
+    stubFetch((call) =>
+      call.path.includes('/persons/')
+        ? errorResponse(401, 'unauthenticated')
+        : jsonResponse(200, api),
+    );
+    const client = createQueryClient();
+    client.setQueryData(['session'], alice);
+    renderWithClient(<GraphScreen getLayoutEngine={getEngine} />, client);
+    await waitForPeople(12);
+    await userEvent.click(node(1));
+    await waitFor(() => {
+      expect(client.getQueryData(['session'])).toBeNull();
+    });
   });
 });

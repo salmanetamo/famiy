@@ -88,20 +88,7 @@
   cursor: default;
 }
 
-.summary {
-  position: absolute;
-  left: var(--space-3);
-  bottom: var(--space-3);
-  max-width: calc(100% - 2 * var(--space-3));
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--graph-card-stroke);
-  border-radius: 6px;
-  background: var(--color-bg);
-  cursor: default;
-}
-
-.toolbar button,
-.summary button {
+.toolbar button {
   min-width: 2.25rem;
   min-height: 2.25rem;
 }

@@ -22,6 +22,22 @@ export function lifespan(person: Person): string {
 }
 
 /**
+ * A date for the detail panel: "12 April 1930", or just "c. 1930" when the date is approximate (the
+ * month and day of an approximate date mean nothing). Formatted in UTC so the day never shifts.
+ */
+export function formatDate(isoDate: string, approx = false): string {
+  if (approx) return `c. ${yearOf(isoDate)}`;
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString('en-GB', {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/**
  * What a screen reader hears for a person in the graph. Whether they are selected is not part of the
  * name: the card is a toggle button, and `aria-pressed` already announces that state.
  */

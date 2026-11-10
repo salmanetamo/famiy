@@ -54,6 +54,31 @@ export function comparePeople(a: Person, b: Person): number {
   return a.id - b.id;
 }
 
+export interface Relatives {
+  parents: readonly Person[];
+  partners: readonly Person[];
+  children: readonly Person[];
+}
+
+/** Direct relatives of one person, each list in display order. */
+export function relativesOf(family: FamilyGraph, id: number): Relatives {
+  const pick = (ids: readonly number[] | undefined): Person[] =>
+    (ids ?? []).flatMap((other) => family.personById.get(other) ?? []);
+  const partnerIds = family.unions.flatMap((union) =>
+    union.partners[0] === id
+      ? [union.partners[1]]
+      : union.partners[1] === id
+        ? [union.partners[0]]
+        : [],
+  );
+  // a union can exist only because of shared children; those two are still partners to the reader
+  return {
+    parents: pick(family.parentsOf.get(id)),
+    partners: pick(partnerIds).sort(comparePeople),
+    children: pick(family.childrenOf.get(id)),
+  };
+}
+
 function toPerson(p: PersonSummary): Person {
   return {
     id: p.id,

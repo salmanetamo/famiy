@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ApiGraph } from '../api/types';
 import { apiGraphFrom, edgeCases, emptyGraph, messy } from '../test/fixtures';
-import { buildFamilyGraph, comparePeople, type Person } from './family';
+import { buildFamilyGraph, comparePeople, relativesOf, type Person } from './family';
 
 const person = (id: number, birth: string | null): ApiGraph['persons'][number] => ({
   id,
@@ -138,5 +138,45 @@ describe('buildFamilyGraph', () => {
     });
     expect(family.parentsOf.get(2)).toEqual([1]);
     expect(family.childrenOf.get(1)).toEqual([2]);
+  });
+});
+
+describe('relativesOf', () => {
+  const { api, idOf } = apiGraphFrom(messy);
+  const family = buildFamilyGraph(api);
+  const names = (people: readonly Person[]) => people.map((person) => person.givenName);
+  const of = (key: string) => relativesOf(family, idOf[key] ?? -1);
+
+  it('lists parents, partners and children in display order', () => {
+    const idi = of('p1');
+    expect(names(idi.parents)).toEqual(['Abou', 'Fati']);
+    expect(names(idi.partners)).toEqual(['Rama', 'Zara']); // two partnerships, by birth date
+    expect(names(idi.children)).toEqual(['Ali', 'Hawa', 'Bina']);
+  });
+
+  it('finds a partner from either side of the pair', () => {
+    expect(names(of('s1').partners)).toEqual(['Idi']);
+    expect(names(of('g2').partners)).toEqual(['Abou']);
+  });
+
+  it('counts two people who only share a child as partners, with no partnership recorded', () => {
+    const shared = buildFamilyGraph({
+      persons: [person(1, null), person(2, null), person(3, null)],
+      parent_links: [
+        { parent_id: 1, child_id: 3 },
+        { parent_id: 2, child_id: 3 },
+      ],
+      partnerships: [],
+    });
+    expect(relativesOf(shared, 1).partners.map((x) => x.id)).toEqual([2]);
+    expect(relativesOf(shared, 2).partners.map((x) => x.id)).toEqual([1]);
+  });
+
+  it('has no partners or children for someone who has none', () => {
+    const { api: a } = apiGraphFrom(edgeCases);
+    const alone = buildFamilyGraph(a);
+    const tara = relativesOf(alone, 8);
+    expect(tara.partners).toEqual([]);
+    expect(tara.children).toEqual([]);
   });
 });

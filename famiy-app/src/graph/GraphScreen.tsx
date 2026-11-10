@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { describeApiError } from '../api/describeError';
 import type { LayoutEngine } from '../layout/types';
 import { useLayout } from '../layout/useLayout';
-import { GraphView } from '../view/GraphView';
+import { GraphView, type GraphViewHandle } from '../view/GraphView';
+import { DetailPanel } from './DetailPanel';
 import styles from './GraphScreen.module.css';
+import { SearchBox } from './SearchBox';
 import { useFamilyGraph } from './useFamilyGraph';
 
 interface Props {
@@ -26,6 +28,7 @@ export function GraphScreen({ getLayoutEngine }: Props) {
   );
   const { layout, pending, error, retry } = useLayout(graph.data, engine);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const viewRef = useRef<GraphViewHandle>(null);
 
   const family = graph.data;
   if (family === undefined) {
@@ -52,41 +55,71 @@ export function GraphScreen({ getLayoutEngine }: Props) {
     );
   }
 
+  const selected = selectedId === null ? undefined : family.personById.get(selectedId);
+
+  /** Select someone and bring them into view; focus follows, so the keyboard carries on from there. */
+  function goTo(id: number) {
+    setSelectedId(id);
+    viewRef.current?.centerOn(id);
+    viewRef.current?.focusPerson(id);
+  }
+
   return (
     <div className={styles.screen}>
-      <div className={styles.status}>
-        <div role="status">{pending ? 'Laying out your family…' : ''}</div>
-        {graph.isError ? (
-          // A failed background refresh must not replace the graph the user is looking at.
-          <div role="alert" className={styles.alert}>
-            <span>Could not refresh your family: {describeApiError(graph.error)}</span>{' '}
-            <button
-              type="button"
-              onClick={() => {
-                void graph.refetch();
-              }}
-            >
-              Try again
-            </button>
-          </div>
+      <div className={styles.bar}>
+        <SearchBox persons={family.persons} onChoose={goTo} />
+        <div className={styles.status}>
+          <div role="status">{pending ? 'Laying out your family…' : ''}</div>
+          {graph.isError ? (
+            // A failed background refresh must not replace the graph the user is looking at.
+            <div role="alert" className={styles.alert}>
+              <span>Could not refresh your family: {describeApiError(graph.error)}</span>{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  void graph.refetch();
+                }}
+              >
+                Try again
+              </button>
+            </div>
+          ) : null}
+          {error ? (
+            <div role="alert" className={styles.alert}>
+              <span>Could not lay out your family: {error.message}</span>{' '}
+              <button type="button" onClick={retry}>
+                Try again
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className={styles.stage}>
+        {layout ? (
+          <GraphView
+            ref={viewRef}
+            layout={layout}
+            family={family}
+            selectedId={selected ? selected.id : null}
+            onSelect={setSelectedId}
+          />
         ) : null}
-        {error ? (
-          <div role="alert" className={styles.alert}>
-            <span>Could not lay out your family: {error.message}</span>{' '}
-            <button type="button" onClick={retry}>
-              Try again
-            </button>
-          </div>
+        {selected ? (
+          <DetailPanel
+            family={family}
+            person={selected}
+            onCenter={() => {
+              viewRef.current?.centerOn(selected.id);
+            }}
+            onClear={() => {
+              // The Clear button disappears with the selection, so give focus back to the person.
+              viewRef.current?.focusPerson(selected.id);
+              setSelectedId(null);
+            }}
+            onGoTo={goTo}
+          />
         ) : null}
       </div>
-      {layout ? (
-        <GraphView
-          layout={layout}
-          family={family}
-          selectedId={selectedId !== null && family.personById.has(selectedId) ? selectedId : null}
-          onSelect={setSelectedId}
-        />
-      ) : null}
     </div>
   );
 }

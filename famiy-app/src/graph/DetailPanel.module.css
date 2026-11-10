@@ -1,0 +1,90 @@
+.panel {
+  position: absolute;
+  z-index: 2;
+  top: 3.5rem; /* below the zoom buttons */
+  right: var(--space-3);
+  bottom: var(--space-3);
+  width: min(22rem, calc(100% - 2 * var(--space-3)));
+  overflow: auto;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border: 1px solid var(--graph-card-stroke);
+  border-radius: 6px;
+  background: var(--color-bg);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  overflow-wrap: anywhere;
+}
+
+.span,
+.muted {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+}
+
+.actions {
+  margin: var(--space-2) 0;
+}
+
+.actions button,
+.link,
+.error button {
+  min-height: 2.25rem;
+}
+
+.facts {
+  margin: 0;
+}
+
+.facts dt {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.bio {
+  white-space: pre-wrap;
+}
+
+.relatives {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.error {
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-error);
+  border-radius: 6px;
+  color: var(--color-error);
+}
+
+/* on a narrow screen the panel is a sheet along the bottom, so the graph keeps most of the width */
+@media (max-width: 40rem) {
+  .panel {
+    top: auto;
+    left: var(--space-3);
+    width: auto;
+    max-height: 45%;
+  }
+}

@@ -1,16 +1,22 @@
 .screen {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
+.bar {
+  position: relative;
+  z-index: 3; /* the search results float over the graph below */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
 .status {
-  position: absolute;
-  z-index: 1;
-  top: var(--space-3);
-  left: var(--space-3);
-  max-width: calc(100% - 12rem);
+  flex: 1 1 12rem;
   color: var(--color-muted);
-  pointer-events: none;
 }
 
 .alert {
@@ -20,7 +26,12 @@
   border-radius: 6px;
   background: var(--color-bg);
   color: var(--color-error);
-  pointer-events: auto;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .message {

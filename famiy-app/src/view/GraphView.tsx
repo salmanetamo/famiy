@@ -1,6 +1,5 @@
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { FamilyGraph } from '../domain/family';
-import { displayName, lifespan } from '../domain/format';
 import type { Layout } from '../layout/types';
 import styles from './GraphView.module.css';
 import { neighbour, type Direction } from './neighbours';
@@ -56,18 +55,25 @@ const Connections = memo(function Connections({ layout }: { layout: Layout }) {
   );
 });
 
+/** What the screen around the graph can ask it to do. */
+export interface GraphViewHandle {
+  centerOn: (id: number) => void;
+  focusPerson: (id: number) => void;
+}
+
 interface Props {
   layout: Layout;
   family: FamilyGraph;
   selectedId: number | null;
   onSelect: (id: number | null) => void;
+  ref?: React.Ref<GraphViewHandle>;
 }
 
 /**
  * Draws a layout as SVG and handles pan, zoom, selection and the keyboard. It only draws the
  * coordinates it is given; the domain data is used for labels and for moving between relatives.
  */
-export function GraphView({ layout, family, selectedId, onSelect }: Props) {
+export function GraphView({ layout, family, selectedId, onSelect, ref }: Props) {
   const boxes = useMemo(() => new Map(layout.persons.map((p) => [p.id, p])), [layout]);
   const earliest = family.persons[0];
   const firstBox = earliest ? boxes.get(earliest.id) : undefined;
@@ -93,8 +99,13 @@ export function GraphView({ layout, family, selectedId, onSelect }: Props) {
       ?.focus({ preventScroll: true });
   }
 
-  const selected = selectedId === null ? undefined : family.personById.get(selectedId);
-  const selectedBox = selectedId === null ? undefined : boxes.get(selectedId);
+  useImperativeHandle(ref, () => ({
+    centerOn(id) {
+      const box = boxes.get(id);
+      if (box) controls.centerOnRect(box);
+    },
+    focusPerson,
+  }));
 
   function select(id: number) {
     setFocusId(id);
@@ -213,31 +224,6 @@ export function GraphView({ layout, family, selectedId, onSelect }: Props) {
           Fit
         </button>
       </div>
-
-      {selected && selectedBox ? (
-        <div className={styles.summary} {...{ [GRAPH_CONTROLS_ATTRIBUTE]: true }}>
-          <strong>{displayName(selected)}</strong>
-          {lifespan(selected) ? <span> · {lifespan(selected)}</span> : null}{' '}
-          <button
-            type="button"
-            onClick={() => {
-              controls.centerOnRect(selectedBox);
-            }}
-          >
-            Center
-          </button>{' '}
-          <button
-            type="button"
-            onClick={() => {
-              // This button disappears with the selection, so give focus back to the person.
-              focusPerson(selected.id);
-              onSelect(null);
-            }}
-          >
-            Clear
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
