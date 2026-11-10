@@ -98,9 +98,12 @@ export async function request<T>(method: Method, path: string, body?: unknown): 
         requestId,
       });
     }
+    // 502, 503 and 504 without an API error body come from a proxy in front of a server that is
+    // down or not answering (for example Vite's proxy when the API is not running).
+    const unavailable = res.status === 502 || res.status === 503 || res.status === 504;
     throw new ApiError({
       status: res.status,
-      code: 'unexpected_response',
+      code: unavailable ? 'server_unavailable' : 'unexpected_response',
       message: `Unexpected response (HTTP ${String(res.status)}).`,
       requestId,
     });

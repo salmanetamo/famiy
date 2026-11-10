@@ -9,6 +9,12 @@
   --color-error: #b3261e;
   --color-link: #0b57d0;
   --color-focus: #0b57d0;
+  --graph-card-bg: #ffffff;
+  --graph-card-stroke: #5b6470;
+  --graph-selected-bg: #fff3c4;
+  --graph-selected-stroke: #b26a00;
+  --graph-edge: #7a8594;
+  --graph-partner-edge: #b3544a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +25,12 @@
     --color-error: #ff8a80;
     --color-link: #8ab4f8;
     --color-focus: #8ab4f8;
+    --graph-card-bg: #1f252c;
+    --graph-card-stroke: #8d99a8;
+    --graph-selected-bg: #4a3b12;
+    --graph-selected-stroke: #f2b84b;
+    --graph-edge: #7f8b99;
+    --graph-partner-edge: #e5867c;
   }
 }
 
@@ -57,4 +69,32 @@ header {
 
 main {
   padding-inline: var(--space-4);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+#root > main {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
 }

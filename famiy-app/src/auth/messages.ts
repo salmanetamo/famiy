@@ -1,4 +1,5 @@
 import { ApiError } from '../api/client';
+import { describeApiError } from '../api/describeError';
 
 function waitText(seconds: number | undefined): string {
   if (seconds === undefined) return 'Try again later.';
@@ -8,10 +9,8 @@ function waitText(seconds: number | undefined): string {
 
 /** Plain-language text for a failed sign-in or registration. Branches on the error `code`. */
 export function authErrorMessage(error: unknown): string {
-  if (!(error instanceof ApiError)) return 'Something went wrong. Please try again.';
+  if (!(error instanceof ApiError)) return describeApiError(error);
   switch (error.code) {
-    case 'network_error':
-      return 'Could not reach the server. Check your connection and try again.';
     case 'invalid_credentials':
       return 'Email or password is incorrect.';
     case 'too_many_attempts':
@@ -24,9 +23,7 @@ export function authErrorMessage(error: unknown): string {
       return 'An account with this email already exists. Try signing in instead.';
     case 'validation_failed':
       return error.message;
-    default: {
-      const reference = error.requestId ? ` Reference: ${error.requestId}.` : '';
-      return `Something went wrong (${error.code}).${reference}`;
-    }
+    default:
+      return describeApiError(error);
   }
 }

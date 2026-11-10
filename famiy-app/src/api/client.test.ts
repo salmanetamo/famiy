@@ -72,11 +72,26 @@ describe('request', () => {
     expect(error.retryAfterSeconds).toBeUndefined();
   });
 
-  it('reports a non-JSON error (for example a proxy 502) as unexpected_response', async () => {
-    stubFetch(() => new Response('Bad Gateway', { status: 502 }));
+  it.each([502, 503, 504])(
+    'reports a %i with no API error body (a proxy in front of a down server) as server_unavailable',
+    async (status) => {
+      stubFetch(() => new Response('Bad Gateway', { status }));
+      const error = await caught(request('GET', '/graph'));
+      expect(error.code).toBe('server_unavailable');
+      expect(error.status).toBe(status);
+    },
+  );
+
+  it('reports any other non-JSON error as unexpected_response', async () => {
+    stubFetch(() => new Response('oops', { status: 500 }));
     const error = await caught(request('GET', '/graph'));
     expect(error.code).toBe('unexpected_response');
-    expect(error.status).toBe(502);
+  });
+
+  it('keeps the code from the API itself when a 503 does carry an error body', async () => {
+    stubFetch(() => errorResponse(503, 'unavailable', 'database down'));
+    const error = await caught(request('GET', '/healthz'));
+    expect(error.code).toBe('unavailable');
   });
 
   it('reports a JSON error that lacks the error envelope as unexpected_response', async () => {

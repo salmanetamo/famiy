@@ -17,6 +17,13 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },
   },
-  { files: ['eslint.config.js'], ...tseslint.configs.disableTypeChecked },
+  {
+    files: ['eslint.config.js', 'scripts/**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { ...globals.node },
+    },
+  },
   prettier,
 );

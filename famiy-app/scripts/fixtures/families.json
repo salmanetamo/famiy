@@ -1,0 +1,67 @@
+{
+  "_about": "Dev and test fixture. 'messy' is the PoC-2 family (remarriage, half-siblings, a cousin marriage that forms a diamond). 'edgeCases' covers incomplete data. Persons are keyed by a local key; parents are [parentKey, childKey]; partners are [keyA, keyB, kind]. Years become YYYY-01-01 dates with birth_approx=true, so the UI shows 'c. 1958'.",
+  "messy": {
+    "persons": [
+      { "key": "g1", "given_name": "Abou", "family_name": "Diallo", "birth_year": 1930 },
+      { "key": "g2", "given_name": "Fati", "family_name": "Diallo", "birth_year": 1934 },
+      { "key": "p1", "given_name": "Idi", "family_name": "Diallo", "birth_year": 1958 },
+      { "key": "p2", "given_name": "Nana", "family_name": "Diallo", "birth_year": 1961 },
+      { "key": "s1", "given_name": "Rama", "family_name": null, "birth_year": 1960 },
+      { "key": "s2", "given_name": "Zara", "family_name": null, "birth_year": 1968 },
+      { "key": "s3", "given_name": "Moussa", "family_name": null, "birth_year": 1959 },
+      { "key": "c1", "given_name": "Ali", "family_name": "Diallo", "birth_year": 1982 },
+      { "key": "c2", "given_name": "Hawa", "family_name": "Diallo", "birth_year": 1985 },
+      { "key": "c3", "given_name": "Bina", "family_name": "Diallo", "birth_year": 1990 },
+      { "key": "c4", "given_name": "Sala", "family_name": null, "birth_year": 1984 },
+      { "key": "d1", "given_name": "Umar", "family_name": "Diallo", "birth_year": 2008 }
+    ],
+    "parents": [
+      ["g1", "p1"],
+      ["g2", "p1"],
+      ["g1", "p2"],
+      ["g2", "p2"],
+      ["p1", "c1"],
+      ["s1", "c1"],
+      ["p1", "c2"],
+      ["s1", "c2"],
+      ["p1", "c3"],
+      ["s2", "c3"],
+      ["p2", "c4"],
+      ["s3", "c4"],
+      ["c1", "d1"],
+      ["c4", "d1"]
+    ],
+    "partners": [
+      ["g1", "g2", "marriage"],
+      ["p1", "s1", "marriage"],
+      ["p1", "s2", "marriage"],
+      ["p2", "s3", "marriage"],
+      ["c1", "c4", "marriage"]
+    ]
+  },
+  "edgeCases": {
+    "persons": [
+      { "key": "noor", "given_name": "Noor", "family_name": null, "birth_year": null },
+      { "key": "omar", "given_name": "Omar", "family_name": "Haddad", "birth_year": 1970 },
+      { "key": "lina", "given_name": "Lina", "family_name": "Haddad", "birth_year": 2000 },
+      { "key": "pia", "given_name": "Pia", "family_name": "Lund", "birth_year": 1955 },
+      { "key": "quentin", "given_name": "Quentin", "family_name": "Lund", "birth_year": 1953 },
+      { "key": "rosa", "given_name": "Rosa", "family_name": "Mendes", "birth_year": 1960 },
+      { "key": "sami", "given_name": "Sami", "family_name": "Mendes", "birth_year": 1985 },
+      { "key": "tara", "given_name": "Tara", "family_name": "Mendes", "birth_year": null },
+      {
+        "key": "uma",
+        "given_name": "Uma Alexandra-Maria",
+        "family_name": "Whitfield-Montgomery",
+        "birth_year": 1990
+      }
+    ],
+    "parents": [
+      ["noor", "lina"],
+      ["omar", "lina"],
+      ["rosa", "sami"],
+      ["rosa", "tara"]
+    ],
+    "partners": [["pia", "quentin", "partnership"]]
+  }
+}

@@ -31,10 +31,10 @@ export interface FetchCall {
   body: string | undefined;
 }
 
-type Handler = (call: FetchCall) => Response | Promise<Response>;
+export type FetchHandler = (call: FetchCall) => Response | Promise<Response>;
 
 /** Replaces global fetch with `handler`; returns the recorded calls. Removed by vi.unstubAllGlobals. */
-export function stubFetch(handler: Handler): FetchCall[] {
+export function stubFetch(handler: FetchHandler): FetchCall[] {
   const calls: FetchCall[] = [];
   vi.stubGlobal(
     'fetch',

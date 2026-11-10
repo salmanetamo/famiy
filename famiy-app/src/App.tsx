@@ -2,8 +2,16 @@ import { useEffect, useRef } from 'react';
 import { AuthPage } from './auth/AuthPage';
 import { authErrorMessage } from './auth/messages';
 import { useLogout, useSession, type Session } from './auth/session';
+import { GraphScreen } from './graph/GraphScreen';
+import type { LayoutEngine } from './layout/types';
+import { getAppLayoutEngine } from './layout/workerEngine';
 
-export function App() {
+interface Props {
+  /** The layout engine is a Web Worker in the app; tests pass a plain in-thread engine. */
+  getLayoutEngine?: () => LayoutEngine;
+}
+
+export function App({ getLayoutEngine = getAppLayoutEngine }: Props) {
   const session = useSession();
   const logout = useLogout();
   useMoveFocusOnSignInOrOut(session.status);
@@ -47,8 +55,10 @@ export function App() {
             <div role="alert">{logout.isError ? authErrorMessage(logout.error) : null}</div>
           </header>
           <main>
-            <h1 tabIndex={-1}>Family Graph</h1>
-            <p>Your family graph will appear here.</p>
+            <h1 tabIndex={-1} className="visually-hidden">
+              Family Graph
+            </h1>
+            <GraphScreen getLayoutEngine={getLayoutEngine} />
           </main>
         </>
       );
