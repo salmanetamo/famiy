@@ -24,6 +24,18 @@ it by hand) · `npm run api:types:check` (CI: fails if the committed file is sta
    (gitignored) and set `E2E_PASSWORD`; register it once through the UI. Registration is capped by
    `MAX_USERS` and rate-limited per address, so reuse the account instead of registering per test.
 
+5. An empty account shows "Your tree is empty" and editing arrives in a later slice, so seed one:
+   `node scripts/seed-dev.mjs` (the PoC-2 family plus an incomplete-data family, 21 people, through the
+   real API; refuses if the account already has people). `--count N` makes about N synthetic people.
+6. If the page says "The server isn't reachable", the API is not running (Vite's proxy answers 502).
+
+## Layout of `src/`
+
+`api/` (the only `fetch`, typed errors) · `auth/` (session, sign-in form) · `domain/` (`buildFamilyGraph`,
+formatting; no React) · `layout/` (ELK graph building, the worker, latest-wins runner; no React except
+`useLayout`) · `view/` (SVG graph, pan/zoom, keyboard) · `graph/` (the screen that ties data, layout and
+view together). Fixtures shared by tests and the seed script: `scripts/fixtures/families.json`.
+
 ## Architecture rules (ADR-002, ADR-005)
 
 - Domain state (people, edges) is separate from view state (coordinates, zoom, selection).

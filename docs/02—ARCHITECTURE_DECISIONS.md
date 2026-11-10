@@ -480,3 +480,27 @@ got 403 `origin_not_allowed`, and responses carry no `Access-Control-*` headers.
 
 **Revisit trigger:** reopen the library choice if the culled custom renderer cannot hold ~60 FPS at 1,000
 visible persons on a real device, or if accessibility or hit-testing cost outweighs the control gained.
+
+
+**Implementation notes (slice 2, 2026-11-10; the read-only graph is built and working in a real browser):**
+- **Worker, as built.** The layout runs in our own small worker (`src/layout/layout.worker.ts`) wrapping
+  `elkjs/lib/elk.bundled.js` and speaking a two-message protocol of plain data, not through elkjs's own
+  `workerFactory` route (its README warns about bundler problems, and our own protocol is smaller). It is
+  the only file that imports the 1.46 MB ELK bundle, so the main chunk stays 277 kB (87 kB gzipped). The
+  engine is injected (`LayoutEngine`), so tests run real elkjs in Node and the app runs the worker.
+- **Unions** come from recorded partnerships (even childless ones) and from any two people who share a
+  child (no partnership needed). A child with one known parent hangs from that parent directly. Within a
+  generation people are ordered by birth date, unknown dates last, ties by id.
+- **Fixed-size cards** (160×56), names cut with a tooltip for the full text, couple containers as in PoC-2.
+- **A bug the layout tests found:** with container padding of 6 px, people in a couple container sat 6 px
+  lower than other people of the same generation (and some root people 2 to 4 px off each other). Padding is
+  now 0 (containers are never drawn), and every generation sits on exactly one row.
+- **Measured (real Chromium, real worker, 1,000 synthetic people served to the app; 2 runs):** from "Laying
+  out" appearing to the last card drawn took 1.6 to 1.8 s, and the longest main-thread gap during that was
+  about 280 ms (React drawing ~6,900 DOM elements, not ELK). In Node the same layout took 2.4 to 3.2 s. Not
+  measured: a real device or GPU, 5,000 and 10,000 people (slice 5), pan/zoom frame rate at 1,000.
+- **Interaction as built:** wheel zoom about the cursor, drag pan (with a 4 px threshold), buttons, keys
+  (+ − 0, Shift+arrows pan), single tab stop with arrow keys between relatives, Center, Clear, double-click to
+  centre. A person card is a toggle button: pressing a selected person again deselects, and the label is
+  just name and life span (`aria-pressed` carries the selected state). The initial view fits everything if the scale would be at least 0.5, otherwise it shows normal size
+  on the earliest-born person.

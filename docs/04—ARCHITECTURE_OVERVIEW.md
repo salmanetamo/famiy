@@ -81,10 +81,12 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
 ## Frontend (`famiy-app/`)
-**Scaffold implemented (2026-11-10), no features yet.** React + TypeScript, Vite, Vitest. The browser is
-same-origin with the dev server, which proxies `/api/*` to this API. Planned design (ADR-002, ADR-005):
-`GET /graph` through TanStack Query → a pure layout function running in a Web Worker (elkjs `layered`, union
-nodes, couple containers) → a custom React + SVG renderer; domain state and view state kept apart.
+**Implemented (2026-11-10): sign-in and the read-only graph. Not yet built: search and the person panel,
+editing, culling for large trees.** React + TypeScript, Vite, Vitest. The browser is same-origin with the dev
+server, which proxies `/api/*` to this API. The path (ADR-002, ADR-005): `GET /graph` through TanStack Query
+→ `buildFamilyGraph` (unions from partnerships and shared children) → a pure layout function that runs ELK
+(`layered`, union nodes, couple containers) in a Web Worker → a custom React + SVG renderer with pan, zoom,
+selection and keyboard movement. Domain state and view state (viewport, selection) are kept apart.
 
 ## Not built yet (planned)
 Email verification and password reset, the frontend's features (auth shell, graph, search, editing),
