@@ -3,9 +3,9 @@
 _Last updated: 2026-11-10_
 
 ## Current phase
-**Phase 6 — frontend (`famiy-app/`): in progress. Slice 0 (spike and scaffold) is implemented, uncommitted.**
-Slices 1–6 (auth shell, read-only graph, detail and search, editing, scale, optional "how are we
-related") have not started. See "Phase 6, slice 0" below and ADR-005. Phase 7 = deployment has not started.
+**Phase 6 — frontend (`famiy-app/`): in progress. Slice 0 (spike and scaffold) is committed on `main` (`a350038` spike, `f6b95fe` scaffold, `546457c` ADR-005). Slice 1 (auth shell) is implemented and uncommitted.**
+Slices 2–6 (read-only graph, detail and search, editing, scale, optional "how are we related") have
+not started. See "Phase 6, slice 0" and "slice 1" below and ADR-005. Phase 7 = deployment has not started.
 
 Phase 5 (the backend API) closed 2026-11-09 at the owner's word. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
 (3) partnership API, (4) bio and residence, (5) derived kinship (descendants, siblings,
@@ -28,7 +28,7 @@ deployed.**
 | `make api-lint` (Redocly) | The owner confirmed it for Phase 4. **Not reported to me for the Phase 5 changes.** I checked that the OpenAPI file parses as YAML and is valid UTF-8; I have not run Redocly |
 | Nothing is deployed | Fact: no host, no Caddy, no TLS, no production database |
 
-## Phase 6, slice 0 — spike and scaffold (2026-11-10; working tree, not committed; nothing deployed)
+## Phase 6, slice 0 — spike and scaffold (2026-11-10; committed on `main`; nothing deployed)
 | Item | State |
 |---|---|
 | PoC-4 (`pocs/poc4-render-lib/`): custom React+SVG vs React Flow vs Cytoscape.js on the PoC-2 fixture and a synthetic 1,000-person graph, same ELK layout for all | **Run by me**, 3 runs per case, headless Chromium (software-rendered, so conservative). Numbers in ADR-005 and the PoC README. Cytoscape and React Flow were not tuned. **Not measured:** a real device or GPU, layout inside a worker, memory |
@@ -38,9 +38,23 @@ deployed.**
 | Version findings | TypeScript 7.0.2 exists but typescript-eslint 8.72.1 requires `<6.1.0`, so TypeScript is pinned to 6.0.3. jsdom 29.1.1 (jsdom 30+ needs Node ≥ 22.22.2). openapi-typescript needs an `overrides` entry for its TypeScript 5 peer |
 | Vite dev proxy `/api` → `http://localhost:8080` (prefix stripped, `changeOrigin: false`) | **Run by me against the real API and dev database:** GET through the proxy returned the health response; a same-origin POST reached the handler (401); a foreign Origin got 403 `origin_not_allowed`; no `Access-Control-*` headers. Mutation: `changeOrigin: true` made the same POST return 403, and restoring it returned 401. No automated test covers this |
 | `.github/workflows/frontend-ci.yml` (install, API types check, format, typecheck, lint, test, build) | **Written, not run on GitHub.** `actions/setup-node` v7 checked as the latest major (v7.1.0). Open a PR for the result to be readable |
-| `npm run api:types:check` | **Not demonstrated.** It compares against git, and `schema.d.ts` is not committed yet, so it passes vacuously until you commit; I have not shown it fails on a stale file |
+| `npm run api:types:check` | **Run by me after the commit:** exits 0 on the committed tree; with a property added to `User` in `openapi.yaml` (spec changed, `schema.d.ts` stale) it exits 1 and shows the added lines; restored, it exits 0. My first mutation (a name added to `required` without a property) changed nothing in the output, so it proved nothing and is not counted. It only means something while `schema.d.ts` is tracked |
 | `famiy-app/CLAUDE.md`, `run-web-checks` skill, `web-reviewer` agent, root `CLAUDE.md`, `.gitattributes` (LF for `famiy-app/**`) | written. The agent and skill have **not been used yet**. `web-reviewer` has not reviewed this slice |
 | Not done in this slice | no features, no Playwright, no frontend tests beyond the one placeholder test |
+
+## Phase 6, slice 1 — auth shell (2026-11-10; working tree, not committed; nothing deployed)
+| Item | State |
+|---|---|
+| Typed API client (`src/api/client.ts`, the only `fetch` caller): `ApiError {status, code, message, retryAfterSeconds, requestId}`; network failure → `network_error`; non-JSON or envelope-less response → `unexpected_response`; `Content-Type: application/json` only when there is a body. Auth calls in `src/api/auth.ts` (`me()` returns `null` on `unauthenticated`) | implemented; tested (unit) |
+| Session (TanStack Query 5.107.1, peers checked): `['session']` query; a 401 `unauthenticated` from any query or mutation clears it, while `invalid_credentials` does not; logout success removes every cached query except the session, logout failure keeps the user signed in and shows the error | implemented; tested |
+| `AuthPage` (sign in / create account in one form): labelled fields, `autocomplete` hints, `role="alert"` region, code → plain-language messages (429 includes the wait in minutes, rounded up), button disabled while pending, password cleared after every submit | implemented; tested |
+| Placeholder signed-in shell (email + sign out); global CSS tokens with light/dark and reduced-motion; CSS module for the form | implemented; visual check of two screenshots only |
+| Frontend tests | **Run by me:** 47 tests in 5 files pass; `npm run check` (format, typecheck, lint, test, build) exits 0 |
+| Mutation checks (14 that count; each removed one protection and a named test failed; files restored, suite green after) | **First round (8):** Content-Type header dropped → 2 tests fail; Retry-After parsing dropped → 2; logout keeping cached data → 1; logout not clearing the session → 2; any 401 ends the session → 2; `me()` nulling on any `ApiError` → 3; password kept after submit → 1; wait rounded down → 1. **After the review (6):** `endSession` keeping cached data → 3; `startSession` not cancelling the pending `me` check → 1; `startSession` keeping old data → 1; focus move replaced by `blur()` → 2; status region remounting → 1; 401 handler not ending the session → 2. None survived. **Not counted:** my first "focus" mutation replaced the call with a comment, left `if (switched)` without a statement and did not parse; and a generated mutation script had an escaping error and never ran. **Two survivors that were informative, not gaps:** removing an explicit `cancelQueries` for non-session queries changed no result, because `removeQueries` already destroys a query and silently cancels its in-flight fetch (inferred from the survivors, not read from the library source); I removed that redundant call. The cancel of the *session* query is not redundant and is covered by a race test |
+| Real browser (Playwright/Chromium against Vite → Go API → Postgres, run by me) | fresh visit shows sign-in (`me` 401); wrong password shows "Email or password is incorrect." and clears the field; register succeeded; the cookie is `famiy_session`, HttpOnly, SameSite=Lax, path `/`, **not Secure (local plain-HTTP setting)**, invisible to `document.cookie`; `localStorage` and `sessionStorage` empty; reload stays signed in; sign out removes the cookie; sign in again works; with the cookie cleared a reload shows the form; first Tab lands on the email field. Re-run after the review fixes: also a 409 `email_taken` message on registering the existing account, sign-in through the form, and focus lands on the "Family Graph" heading after both sign-in and sign-out. The browser console logs the expected 401 of the first `me` call as a red network error (unavoidable with `fetch`) |
+| Dev account | one account (`dev@famiy.local`) created in the local dev database; its generated password is in the gitignored `famiy-app/.env.local` (`.env.example` documents the variables). It uses one of `MAX_USERS=10` |
+| Not covered | an in-browser 401 from a data request (the UI has none yet; covered only by the unit test with a stubbed fetch); the proxy's behaviour on a 502; keyboard use beyond the first Tab; screen-reader behaviour (nothing was run with one); dark mode was not looked at; no Playwright suite yet (slice 4); `frontend-ci` has still not run on GitHub |
+| Review (`web-reviewer`) | One Must-fix, verified by me against the code: a 401 only nulled the session, so the previous account's cached data stayed in memory for the next sign-in on that tab. Fixed with `endSession` / `startSession` (`src/auth/sessionLifecycle.ts`), used by logout, the 401 handler and sign-in, with tests that fail without each part. Also fixed: a pending session check racing a sign-in, a late 401 from before a sign-in, focus lost when the screen changes (now moved to the heading), and the session-error message inserted already filled into a live region (now one persistent `role="status"` region from loading to error). Not applied: scoping `"node"` out of the global `tsconfig` types (the slice 0 reviewer asked for it), `Promise.withResolvers` in one test, and the `.env.example` note. The reviewer read the code and ran `npm run check` but ran no mutations and no browser, so those results are mine |
 
 ## Phase 5 outcome: proposed / implemented / tested / deployed
 
@@ -347,11 +361,12 @@ None.
   account's creates only. A collision between two huge owner ids would only add waiting.
 
 ## Next actions
-Phase 6 slice 0 is implemented and uncommitted. Immediately next: review it, commit it (suggested
-branch `feat/frontend-scaffold`, `feat: scaffold famiy-app` plus `docs: add ADR-005`), open a PR so
-`frontend-ci` is readable, then run `web-reviewer` and design slice 1 (auth shell). Still outstanding
-from before: the `make api-lint` result for the Phase 5 OpenAPI changes. The list below is the
-original Phase 5-era plan; item 2 is now in progress.
+Phase 6 slice 0 is committed on `main` and was reviewed by `web-reviewer` (no Must-fix findings; its
+Should-fix items on stale commit-state wording, the `api:types:check` row and `tsconfig` `types` were
+applied). Immediately next: slice 1 (auth shell), design proposed and awaiting the owner's approval.
+`frontend-ci` has still not run on GitHub: it goes straight to `main`, so open a PR for its result to
+be readable. Still outstanding from before: the `make api-lint` result for the Phase 5 OpenAPI
+changes. The list below is the original Phase 5-era plan; item 2 is now in progress.
 1. **Owner housekeeping before Phase 6:** run `make api-lint` against the Phase 5 OpenAPI changes
    and tell me the result (I have not run Redocly). Open a PR for future slices so CI results are
    readable from GitHub, not only reported.
