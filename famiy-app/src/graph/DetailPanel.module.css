@@ -88,3 +88,22 @@
     max-height: 45%;
   }
 }
+
+.confirm {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-error);
+  border-radius: 6px;
+}
+
+.confirm p {
+  margin: 0 0 var(--space-2);
+}
+
+.confirm button {
+  min-height: 2.25rem;
+}
+
+.confirmError {
+  color: var(--color-error);
+}

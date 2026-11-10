@@ -10,6 +10,8 @@ export const MAX_SHOWN = 8;
 interface Props {
   persons: readonly Person[];
   onChoose: (id: number) => void;
+  /** The search input, so the screen can move focus to it (for example after a delete). */
+  inputRef?: React.Ref<HTMLInputElement>;
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * the graph, so there is no request per keystroke. Typing opens the list, Up/Down move through it,
  * Enter picks, Escape closes it (and, when it is already closed, clears the text).
  */
-export function SearchBox({ persons, onChoose }: Props) {
+export function SearchBox({ persons, onChoose, inputRef }: Props) {
   const index = useMemo(() => buildSearchIndex(persons), [persons]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -71,6 +73,7 @@ export function SearchBox({ persons, onChoose }: Props) {
       </label>
       <input
         id={`${listId}-input`}
+        ref={inputRef}
         type="search"
         role="combobox"
         className={styles.input}

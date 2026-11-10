@@ -37,3 +37,7 @@
 .message {
   padding: var(--space-4);
 }
+
+.addButton {
+  min-height: 2.25rem;
+}

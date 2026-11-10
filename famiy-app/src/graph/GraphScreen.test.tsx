@@ -67,8 +67,9 @@ const translateOf = (text: string): [number, number] => {
   return [x ?? NaN, y ?? NaN];
 };
 
-// the search box is the first tab stop; the next one is the graph
+// tab stops in order: the search box, the Add person button, then the graph
 async function tabIntoGraph() {
+  await userEvent.tab();
   await userEvent.tab();
   await userEvent.tab();
 }
@@ -648,11 +649,13 @@ describe('finding a person by name (slice 3)', () => {
     expect(screen.getByText(/4 more/)).toBeInTheDocument();
   });
 
-  it('reaches the graph with Tab after the search box', async () => {
+  it('reaches the graph with Tab after the search box and the Add person button', async () => {
     renderScreen();
     await waitForPeople(12);
     await userEvent.tab();
     expect(search()).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Add person' })).toHaveFocus();
     await userEvent.tab();
     expect(people().find((p) => p === document.activeElement)).toBeDefined();
   });

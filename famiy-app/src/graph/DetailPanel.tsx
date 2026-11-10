@@ -1,8 +1,11 @@
-import { useId } from 'react';
-import { describeApiError } from '../api/describeError';
+import { useEffect, useId, useRef, useState } from 'react';
+import { describeApiError, describeWriteError } from '../api/describeError';
 import { relativesOf, type FamilyGraph, type Person } from '../domain/family';
 import { displayName, formatDate, lifespan, personLabel } from '../domain/format';
+import { formFromPerson, toPatchBody, type PersonFormValues } from '../domain/personForm';
 import styles from './DetailPanel.module.css';
+import { PersonForm } from './PersonForm';
+import { useDeletePerson, useUpdatePerson } from './usePersonMutations';
 import { usePersonDetail } from './usePersonDetail';
 
 interface Props {
@@ -12,6 +15,8 @@ interface Props {
   onClear: () => void;
   /** Select another person (a relative) and bring them into view. */
   onGoTo: (id: number) => void;
+  /** The person was deleted and the graph no longer has them. */
+  onDeleted: (id: number) => void;
 }
 
 function RelativeList({
@@ -48,17 +53,71 @@ function RelativeList({
   );
 }
 
+type Mode = 'view' | 'edit' | 'confirmDelete';
+
 /**
- * Everything known about the selected person. The summary and relatives come from the graph that is
- * already loaded, so the panel is useful immediately; only the bio and residence are fetched.
- * Bio is free text: it is shown as plain text, never interpreted as markup.
+ * Everything known about the selected person, and where they are edited or deleted. The summary and
+ * relatives come from the graph that is already loaded, so the panel is useful immediately; only
+ * the bio and residence are fetched. Bio is free text: it is shown as plain text, never as markup.
+ *
+ * Mount it with `key={person.id}` so one person's form or confirmation never carries over to another.
  */
-export function DetailPanel({ family, person, onCenter, onClear, onGoTo }: Props) {
+export function DetailPanel({ family, person, onCenter, onClear, onGoTo, onDeleted }: Props) {
   const titleId = useId();
   const detail = usePersonDetail(person.id);
+  const update = useUpdatePerson(person.id);
+  const remove = useDeletePerson();
+  const [mode, setMode] = useState<Mode>('view');
+  // What the form was opened with. Patches are computed against this, not against live query
+  // data, which a refetch can replace while the form is open.
+  const [baseline, setBaseline] = useState<PersonFormValues | null>(null);
+  const editRef = useRef<HTMLButtonElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  // Buttons that disappear while a form or confirmation is open get focus back when it closes.
+  const restoreFocus = useRef<'edit' | 'delete' | null>(null);
+
+  useEffect(() => {
+    const target = restoreFocus.current;
+    if (target === null || mode !== 'view') return;
+    restoreFocus.current = null;
+    (target === 'edit' ? editRef : deleteRef).current?.focus();
+  });
+  useEffect(() => {
+    if (mode === 'confirmDelete') cancelDeleteRef.current?.focus();
+  }, [mode]);
+
   const { parents, partners, children } = relativesOf(family, person.id);
   const span = lifespan(person);
   const hasRelatives = parents.length + partners.length + children.length > 0;
+  const editing = mode === 'edit' ? baseline : null;
+  const busy = update.isPending || remove.isPending;
+
+  function save(original: PersonFormValues, values: PersonFormValues) {
+    const patch = toPatchBody(values, original);
+    if (Object.keys(patch).length === 0) {
+      restoreFocus.current = 'edit';
+      setMode('view'); // nothing changed, so there is nothing to send
+      return;
+    }
+    update.mutateAsync(patch).then(
+      () => {
+        restoreFocus.current = 'edit';
+        setMode('view');
+      },
+      () => undefined, // shown by the form through `update.error`
+    );
+  }
+
+  function confirmDelete() {
+    if (busy) return;
+    remove.mutateAsync(person.id).then(
+      () => {
+        onDeleted(person.id);
+      },
+      () => undefined, // shown in the confirmation
+    );
+  }
 
   return (
     <section className={styles.panel} aria-labelledby={titleId}>
@@ -66,61 +125,143 @@ export function DetailPanel({ family, person, onCenter, onClear, onGoTo }: Props
         {displayName(person)}
       </h2>
       {span ? <p className={styles.span}>{span}</p> : null}
-      <div className={styles.actions}>
-        <button type="button" onClick={onCenter}>
-          Center
-        </button>{' '}
-        <button type="button" onClick={onClear}>
-          Clear
-        </button>
-      </div>
 
-      <dl className={styles.facts}>
-        {person.birthDate !== null ? (
-          <>
-            <dt>Born</dt>
-            <dd>{formatDate(person.birthDate, person.birthApprox)}</dd>
-          </>
-        ) : null}
-        {person.deathDate !== null ? (
-          <>
-            <dt>Died</dt>
-            <dd>{formatDate(person.deathDate)}</dd>
-          </>
-        ) : null}
-        {detail.data?.residence ? (
-          <>
-            <dt>Residence</dt>
-            <dd>{detail.data.residence}</dd>
-          </>
-        ) : null}
-        {detail.data?.bio ? (
-          <>
-            <dt>Notes</dt>
-            <dd className={styles.bio}>{detail.data.bio}</dd>
-          </>
-        ) : null}
-        <RelativeList title="Parents" people={parents} onGoTo={onGoTo} />
-        <RelativeList title="Partners" people={partners} onGoTo={onGoTo} />
-        <RelativeList title="Children" people={children} onGoTo={onGoTo} />
-      </dl>
+      {editing ? (
+        <PersonForm
+          initial={editing}
+          submitLabel="Save"
+          pending={update.isPending}
+          error={update.error}
+          hasError={update.isError}
+          onSubmit={(values) => {
+            save(editing, values);
+          }}
+          onCancel={() => {
+            update.reset();
+            restoreFocus.current = 'edit';
+            setMode('view');
+          }}
+        />
+      ) : (
+        <>
+          <div className={styles.actions}>
+            <button type="button" onClick={onCenter}>
+              Center
+            </button>{' '}
+            <button type="button" onClick={onClear}>
+              Clear
+            </button>{' '}
+            <button
+              type="button"
+              ref={editRef}
+              // the form needs the notes and residence, which arrive with the detail request
+              disabled={!detail.data || mode === 'confirmDelete'}
+              onClick={() => {
+                if (detail.data) setBaseline(formFromPerson(detail.data));
+                setMode('edit');
+              }}
+            >
+              Edit
+            </button>{' '}
+            <button
+              type="button"
+              ref={deleteRef}
+              disabled={mode === 'confirmDelete'}
+              onClick={() => {
+                remove.reset();
+                setMode('confirmDelete');
+              }}
+            >
+              Delete
+            </button>
+          </div>
 
-      {!hasRelatives ? <p className={styles.muted}>No relatives are recorded yet.</p> : null}
-      {detail.isPending ? <p className={styles.muted}>Loading more details…</p> : null}
-      {detail.isError ? (
-        // The summary above is still valid, so this does not replace the panel.
-        <div role="alert" className={styles.error}>
-          <span>Could not load more details: {describeApiError(detail.error)}</span>{' '}
-          <button
-            type="button"
-            onClick={() => {
-              void detail.refetch();
-            }}
-          >
-            Try again
-          </button>
-        </div>
-      ) : null}
+          {mode === 'confirmDelete' ? (
+            <div
+              role="alertdialog"
+              aria-labelledby={`${titleId}-confirm`}
+              className={styles.confirm}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !busy) {
+                  restoreFocus.current = 'delete';
+                  setMode('view');
+                }
+              }}
+            >
+              <p id={`${titleId}-confirm`}>
+                Delete {displayName(person)} permanently? Their links to parents, children and
+                partners are removed too. Those people stay in the tree. This cannot be undone.
+              </p>
+              {remove.isError ? (
+                <p role="alert" className={styles.confirmError}>
+                  {describeWriteError(remove.error)}
+                </p>
+              ) : null}
+              <button type="button" onClick={confirmDelete} aria-disabled={busy}>
+                {remove.isPending ? 'Deleting…' : 'Delete permanently'}
+              </button>{' '}
+              <button
+                type="button"
+                ref={cancelDeleteRef}
+                disabled={busy}
+                onClick={() => {
+                  restoreFocus.current = 'delete';
+                  setMode('view');
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
+
+          <dl className={styles.facts}>
+            {person.birthDate !== null ? (
+              <>
+                <dt>Born</dt>
+                <dd>{formatDate(person.birthDate, person.birthApprox)}</dd>
+              </>
+            ) : null}
+            {person.deathDate !== null ? (
+              <>
+                <dt>Died</dt>
+                <dd>{formatDate(person.deathDate)}</dd>
+              </>
+            ) : null}
+            {detail.data?.residence ? (
+              <>
+                <dt>Residence</dt>
+                <dd>{detail.data.residence}</dd>
+              </>
+            ) : null}
+            {detail.data?.bio ? (
+              <>
+                <dt>Notes</dt>
+                <dd className={styles.bio}>{detail.data.bio}</dd>
+              </>
+            ) : null}
+            <RelativeList title="Parents" people={parents} onGoTo={onGoTo} />
+            <RelativeList title="Partners" people={partners} onGoTo={onGoTo} />
+            <RelativeList title="Children" people={children} onGoTo={onGoTo} />
+          </dl>
+
+          {!hasRelatives ? <p className={styles.muted}>No relatives are recorded yet.</p> : null}
+          {detail.isPending ? <p className={styles.muted}>Loading more details…</p> : null}
+          {detail.isError ? (
+            // The summary above is still valid, so this does not replace the panel.
+            <div role="alert" className={styles.error}>
+              <span>Could not load more details: {describeApiError(detail.error)}</span>{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  void detail.refetch();
+                }}
+              >
+                Try again
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }

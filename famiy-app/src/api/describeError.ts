@@ -16,3 +16,23 @@ export function describeApiError(error: unknown): string {
     }
   }
 }
+
+/**
+ * Text for a failed write (create, edit, delete). The server's own message is shown for rules the
+ * user can act on (a blank name, a date in the future, the account's person limit); those codes are
+ * listed in the OpenAPI file and their messages are written for people.
+ */
+export function describeWriteError(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 'validation_failed':
+      case 'person_limit_reached':
+        return error.message;
+      case 'person_not_found':
+        return 'That person no longer exists. Your family has been refreshed.';
+      case 'request_too_large':
+        return 'That is too much text to save at once.';
+    }
+  }
+  return describeApiError(error);
+}

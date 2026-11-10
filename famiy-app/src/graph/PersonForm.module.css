@@ -1,0 +1,58 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.form label {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.form input[type='text'],
+.form input:not([type]),
+.form input[type='date'],
+.form textarea {
+  min-height: 2.25rem;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.form textarea {
+  padding: var(--space-1) var(--space-3);
+  resize: vertical;
+}
+
+.form .check {
+  margin-top: 0;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.fieldError,
+.serverError {
+  margin: 0;
+  color: var(--color-error);
+}
+
+.serverError {
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-error);
+  border-radius: 6px;
+}
+
+.buttons {
+  /* stays in view while a long form scrolls inside the panel */
+  position: sticky;
+  bottom: calc(-1 * var(--space-3));
+  margin-top: var(--space-3);
+  padding: var(--space-2) 0;
+  background: var(--color-bg);
+}
+
+.buttons button {
+  min-height: 2.25rem;
+}
