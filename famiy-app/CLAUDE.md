@@ -20,6 +20,10 @@ it by hand) · `npm run api:types:check` (CI: fails if the committed file is sta
    with the request Host; rewriting Host makes every POST/PATCH/DELETE fail with `origin_not_allowed`
    (verified 2026-11-10). The API sends no CORS headers, so the proxy is required, not optional.
 
+4. A local dev account for manual and later Playwright checks: copy `.env.example` to `.env.local`
+   (gitignored) and set `E2E_PASSWORD`; register it once through the UI. Registration is capped by
+   `MAX_USERS` and rate-limited per address, so reuse the account instead of registering per test.
+
 ## Architecture rules (ADR-002, ADR-005)
 
 - Domain state (people, edges) is separate from view state (coordinates, zoom, selection).

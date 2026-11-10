@@ -1,0 +1,60 @@
+:root {
+  color-scheme: light dark;
+  --space-1: 0.25rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --color-bg: #ffffff;
+  --color-text: #1b1f24;
+  --color-muted: #5b6470;
+  --color-error: #b3261e;
+  --color-link: #0b57d0;
+  --color-focus: #0b57d0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #14181d;
+    --color-text: #e6e9ed;
+    --color-muted: #9aa4b0;
+    --color-error: #ff8a80;
+    --color-link: #8ab4f8;
+    --color-focus: #8ab4f8;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+input,
+button {
+  font: inherit;
+}
+
+input {
+  padding: var(--space-1) var(--space-3);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+header {
+  padding: var(--space-3) var(--space-4);
+}
+
+main {
+  padding-inline: var(--space-4);
+}
