@@ -11,6 +11,9 @@ coverage.*
 # Node (famiy-app, later)
 node_modules/
 dist/
+# Playwright output (famiy-app)
+/famiy-app/test-results/
+/famiy-app/playwright-report/
 
 # OS / editor
 .DS_Store

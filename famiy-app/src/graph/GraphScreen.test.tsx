@@ -74,6 +74,19 @@ async function tabIntoGraph() {
   await userEvent.tab();
 }
 
+/**
+ * The wheel listener is attached by an effect, which React may run a tick after the cards appear, so a
+ * test that fires a wheel event straight after waitForPeople can beat it (seen on cold starts). A wheel
+ * with no movement does not change the view but is cancelled once the listener is there.
+ */
+async function waitForWheelHandler(viewport: Element) {
+  await waitFor(() => {
+    const probe = new WheelEvent('wheel', { deltaY: 0, bubbles: true, cancelable: true });
+    viewport.dispatchEvent(probe);
+    expect(probe.defaultPrevented).toBe(true);
+  });
+}
+
 async function waitForPeople(count: number) {
   await waitFor(() => {
     expect(people()).toHaveLength(count);
@@ -253,6 +266,7 @@ describe('GraphView', () => {
     const before = scaleOf();
     const viewport = svgRoot().parentElement;
     if (!viewport) throw new Error('the graph has no viewport element');
+    await waitForWheelHandler(viewport);
     const zoomIn = new WheelEvent('wheel', { deltaY: -300, bubbles: true, cancelable: true });
     viewport.dispatchEvent(zoomIn);
     expect(scaleOf()).toBeGreaterThan(before);
@@ -448,6 +462,7 @@ describe('review findings (slice 2)', () => {
     await waitForPeople(12);
     const viewport = svgRoot().parentElement;
     if (!viewport) throw new Error('no viewport');
+    await waitForWheelHandler(viewport);
     const before = scaleOf();
     viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -3, deltaMode: 1, cancelable: true }));
     const afterLines = scaleOf();
@@ -757,7 +772,7 @@ describe('the detail panel (slice 3)', () => {
     expect(idi).toHaveFocus();
   });
 
-  it('says so when a person has no recorded relatives', async () => {
+  it('says "None recorded" under each list when a person has no relatives', async () => {
     const solo = {
       persons: [{ key: 'solo', given_name: 'Solo', family_name: null, birth_year: null }],
       parents: [],
@@ -766,7 +781,7 @@ describe('the detail panel (slice 3)', () => {
     renderScreen(solo, getEngine, () => errorResponse(500, 'internal'));
     await waitForPeople(1);
     await userEvent.click(node(1));
-    expect(within(panel()).getByText('No relatives are recorded yet.')).toBeInTheDocument();
+    expect(within(panel()).getAllByText('None recorded')).toHaveLength(3);
   });
 
   it('closes with Escape from the graph', async () => {

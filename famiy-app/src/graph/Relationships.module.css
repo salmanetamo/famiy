@@ -1,0 +1,65 @@
+.relations h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  margin-bottom: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  margin: 0 0 var(--space-1);
+  color: var(--color-muted);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.relations button,
+.relations select {
+  min-height: 2.25rem;
+}
+
+.link {
+  min-height: 2.25rem;
+}
+
+.picker {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--graph-card-stroke);
+  border-radius: 6px;
+}
+
+.kind {
+  margin-bottom: var(--space-2);
+}
+
+.pickerButtons {
+  margin-top: var(--space-2);
+}
+
+.error {
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-error);
+  border-radius: 6px;
+  color: var(--color-error);
+}

@@ -7,4 +7,5 @@ export type ApiGraph = components['schemas']['Graph'];
 export type PersonDetail = components['schemas']['Person'];
 export type CreatePersonBody = components['schemas']['CreatePerson'];
 export type PatchPersonBody = components['schemas']['PatchPerson'];
+export type PartnerKind = components['schemas']['Partner']['kind'];
 export type PersonSummary = components['schemas']['PersonSummary'];

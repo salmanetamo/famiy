@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { describeApiError, describeWriteError } from '../api/describeError';
-import { relativesOf, type FamilyGraph, type Person } from '../domain/family';
-import { displayName, formatDate, lifespan, personLabel } from '../domain/format';
+import type { FamilyGraph, Person } from '../domain/family';
+import type { PartnerKind } from '../api/types';
+import { displayName, formatDate, lifespan } from '../domain/format';
 import { formFromPerson, toPatchBody, type PersonFormValues } from '../domain/personForm';
 import styles from './DetailPanel.module.css';
 import { PersonForm } from './PersonForm';
+import { Relationships, type Role } from './Relationships';
 import { useDeletePerson, useUpdatePerson } from './usePersonMutations';
 import { usePersonDetail } from './usePersonDetail';
 
@@ -17,40 +19,8 @@ interface Props {
   onGoTo: (id: number) => void;
   /** The person was deleted and the graph no longer has them. */
   onDeleted: (id: number) => void;
-}
-
-function RelativeList({
-  title,
-  people,
-  onGoTo,
-}: {
-  title: string;
-  people: readonly Person[];
-  onGoTo: (id: number) => void;
-}) {
-  if (people.length === 0) return null;
-  return (
-    <>
-      <dt>{title}</dt>
-      <dd>
-        <ul className={styles.relatives}>
-          {people.map((relative) => (
-            <li key={relative.id}>
-              <button
-                type="button"
-                className={styles.link}
-                onClick={() => {
-                  onGoTo(relative.id);
-                }}
-              >
-                {personLabel(relative)}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </dd>
-    </>
-  );
+  /** Start adding a new person who is then linked to this one in `role`. */
+  onAddNew: (role: Role, kind: PartnerKind) => void;
 }
 
 type Mode = 'view' | 'edit' | 'confirmDelete';
@@ -62,7 +32,15 @@ type Mode = 'view' | 'edit' | 'confirmDelete';
  *
  * Mount it with `key={person.id}` so one person's form or confirmation never carries over to another.
  */
-export function DetailPanel({ family, person, onCenter, onClear, onGoTo, onDeleted }: Props) {
+export function DetailPanel({
+  family,
+  person,
+  onCenter,
+  onClear,
+  onGoTo,
+  onDeleted,
+  onAddNew,
+}: Props) {
   const titleId = useId();
   const detail = usePersonDetail(person.id);
   const update = useUpdatePerson(person.id);
@@ -71,6 +49,7 @@ export function DetailPanel({ family, person, onCenter, onClear, onGoTo, onDelet
   // What the form was opened with. Patches are computed against this, not against live query
   // data, which a refetch can replace while the form is open.
   const [baseline, setBaseline] = useState<PersonFormValues | null>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const editRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
@@ -87,9 +66,7 @@ export function DetailPanel({ family, person, onCenter, onClear, onGoTo, onDelet
     if (mode === 'confirmDelete') cancelDeleteRef.current?.focus();
   }, [mode]);
 
-  const { parents, partners, children } = relativesOf(family, person.id);
   const span = lifespan(person);
-  const hasRelatives = parents.length + partners.length + children.length > 0;
   const editing = mode === 'edit' ? baseline : null;
   const busy = update.isPending || remove.isPending;
 
@@ -121,7 +98,7 @@ export function DetailPanel({ family, person, onCenter, onClear, onGoTo, onDelet
 
   return (
     <section className={styles.panel} aria-labelledby={titleId}>
-      <h2 id={titleId} className={styles.title}>
+      <h2 id={titleId} ref={titleRef} tabIndex={-1} className={styles.title}>
         {displayName(person)}
       </h2>
       {span ? <p className={styles.span}>{span}</p> : null}
@@ -239,12 +216,18 @@ export function DetailPanel({ family, person, onCenter, onClear, onGoTo, onDelet
                 <dd className={styles.bio}>{detail.data.bio}</dd>
               </>
             ) : null}
-            <RelativeList title="Parents" people={parents} onGoTo={onGoTo} />
-            <RelativeList title="Partners" people={partners} onGoTo={onGoTo} />
-            <RelativeList title="Children" people={children} onGoTo={onGoTo} />
           </dl>
 
-          {!hasRelatives ? <p className={styles.muted}>No relatives are recorded yet.</p> : null}
+          <Relationships
+            family={family}
+            person={person}
+            onGoTo={onGoTo}
+            onAddNew={onAddNew}
+            // the buttons that were used may be gone after a write, so focus moves to the person's name
+            onWritten={() => {
+              titleRef.current?.focus();
+            }}
+          />
           {detail.isPending ? <p className={styles.muted}>Loading more details…</p> : null}
           {detail.isError ? (
             // The summary above is still valid, so this does not replace the panel.

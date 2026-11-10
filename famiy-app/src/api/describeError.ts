@@ -30,6 +30,20 @@ export function describeWriteError(error: unknown): string {
         return error.message;
       case 'person_not_found':
         return 'That person no longer exists. Your family has been refreshed.';
+      case 'too_many_parents':
+        return 'That person already has two parents.';
+      case 'duplicate_parent':
+        return 'That parent is already recorded.';
+      case 'would_create_cycle':
+        return 'That would make someone their own ancestor.';
+      case 'duplicate_partnership':
+        return 'These two people are already recorded as partners.';
+      case 'self_parent':
+      case 'self_partner':
+        return 'A person cannot be linked to themselves.';
+      case 'parent_link_not_found':
+      case 'partnership_not_found':
+        return 'That link no longer exists. Your family has been refreshed.';
       case 'request_too_large':
         return 'That is too much text to save at once.';
     }

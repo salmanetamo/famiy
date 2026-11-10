@@ -48,8 +48,12 @@ view together). Fixtures shared by tests and the seed script: `scripts/fixtures/
 ## Testing
 
 Vitest + Testing Library (jsdom). Layout and kinship logic are tested as pure functions with the
-PoC-2 fixture in API shape. Playwright smoke tests come with the editing slice and run against a
-throwaway database with one fixed account (registration is capped by `MAX_USERS` and rate-limited).
+PoC-2 fixture in API shape. The Playwright smoke test (`npm run e2e`, `e2e/smoke.spec.ts`) drives the
+real app against the real API and database, so start both first (the check explains it if the API is
+down). It uses its own account, never the dev account: the first run registers it and writes
+`E2E_TEST_EMAIL` / `E2E_TEST_PASSWORD` to the gitignored `.env.local` (the API cannot delete accounts and
+caps them with `MAX_USERS`, so one account is reused). It empties that account before it starts and
+deletes what it adds. It is not part of `npm run check` and not in CI yet (CI has no database).
 
 ## Skills and agents
 

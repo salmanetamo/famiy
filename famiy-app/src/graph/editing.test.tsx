@@ -3,15 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiGraph } from '../api/types';
 import { createQueryClient } from '../queryClient';
-import {
-  alice,
-  errorResponse,
-  jsonResponse,
-  renderWithClient,
-  stubFetch,
-  type FetchCall,
-} from '../test-utils';
+import { alice, errorResponse, jsonResponse, renderWithClient, stubFetch } from '../test-utils';
 import { apiGraphFrom, emptyGraph, messy } from '../test/fixtures';
+import { fakeServer, type Stored } from '../test/fakeServer';
 import { createInlineEngine } from '../test/inlineEngine';
 import { GraphScreen } from './GraphScreen';
 
@@ -21,88 +15,6 @@ afterEach(() => {
 
 const engine = createInlineEngine();
 const getEngine = () => engine;
-
-interface Stored {
-  id: number;
-  given_name: string;
-  family_name: string | null;
-  birth_date: string | null;
-  birth_approx: boolean;
-  death_date: string | null;
-  bio: string | null;
-  residence: string | null;
-  created_at: string;
-}
-
-/** A small stand-in for the API that remembers what was written, so the refetch shows the result. */
-function fakeServer(start: ApiGraph, details: Record<number, Partial<Stored>> = {}) {
-  const store = new Map<number, Stored>(
-    start.persons.map((p) => [
-      p.id,
-      { ...p, bio: null, residence: null, created_at: '2026-11-01T10:00:00Z', ...details[p.id] },
-    ]),
-  );
-  let nextId = 1000;
-  /** Return a Response to override the next matching request; return undefined to let it through. */
-  const intercept: {
-    current: ((call: FetchCall) => Response | Promise<Response> | undefined) | null;
-  } = { current: null };
-
-  const summary = (p: Stored) => ({
-    id: p.id,
-    given_name: p.given_name,
-    family_name: p.family_name,
-    birth_date: p.birth_date,
-    birth_approx: p.birth_approx,
-    death_date: p.death_date,
-  });
-
-  const handler = (call: FetchCall): Response | Promise<Response> => {
-    const overridden = intercept.current?.(call);
-    if (overridden) return overridden;
-    const path = call.path.replace(/^\/api/, '');
-    const one = /^\/persons\/(\d+)$/.exec(path);
-    const id = one?.[1] === undefined ? NaN : Number(one[1]);
-    if (call.method === 'GET' && path === '/graph') {
-      return jsonResponse(200, {
-        persons: [...store.values()].map(summary),
-        parent_links: start.parent_links.filter(
-          (l) => store.has(l.parent_id) && store.has(l.child_id),
-        ),
-        partnerships: start.partnerships.filter((p) => p.partners.every((x) => store.has(x))),
-      });
-    }
-    if (call.method === 'POST' && path === '/persons') {
-      const body = JSON.parse(call.body ?? '{}') as Partial<Stored>;
-      const created: Stored = {
-        id: nextId++,
-        given_name: body.given_name ?? '',
-        family_name: body.family_name ?? null,
-        birth_date: body.birth_date ?? null,
-        birth_approx: body.birth_approx ?? false,
-        death_date: body.death_date ?? null,
-        bio: body.bio ?? null,
-        residence: body.residence ?? null,
-        created_at: '2026-11-10T10:00:00Z',
-      };
-      store.set(created.id, created);
-      return jsonResponse(201, created);
-    }
-    const found = store.get(id);
-    if (!found) return errorResponse(404, 'person_not_found', 'person not found');
-    if (call.method === 'GET') return jsonResponse(200, found);
-    if (call.method === 'PATCH') {
-      Object.assign(found, JSON.parse(call.body ?? '{}'));
-      return jsonResponse(200, found);
-    }
-    if (call.method === 'DELETE') {
-      store.delete(id);
-      return new Response(null, { status: 204 });
-    }
-    return errorResponse(404, 'not_found');
-  };
-  return { handler, intercept, store };
-}
 
 function setup(
   family: Parameters<typeof apiGraphFrom>[0] = messy,

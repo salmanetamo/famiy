@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { describeApiError } from '../api/describeError';
+import { describeApiError, describeWriteError } from '../api/describeError';
+import { displayName } from '../domain/format';
 import type { LayoutEngine } from '../layout/types';
 import { useLayout } from '../layout/useLayout';
 import { GraphView, type GraphViewHandle } from '../view/GraphView';
-import { AddPersonPanel } from './AddPersonPanel';
+import { AddPersonPanel, type Relation } from './AddPersonPanel';
 import { DetailPanel } from './DetailPanel';
 import styles from './GraphScreen.module.css';
 import { SearchBox } from './SearchBox';
@@ -30,7 +31,10 @@ export function GraphScreen({ getLayoutEngine }: Props) {
   );
   const { layout, pending, error, retry } = useLayout(graph.data, engine);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [adding, setAdding] = useState(false);
+  // The add form is open; with a relation, the new person is linked to that person once saved.
+  const [adding, setAdding] = useState<{ relation?: Relation } | null>(null);
+  // Something worth saying that is not tied to one form (a person added but not linked).
+  const [notice, setNotice] = useState<string | null>(null);
   const viewRef = useRef<GraphViewHandle>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -74,7 +78,8 @@ export function GraphScreen({ getLayoutEngine }: Props) {
     revealRef.current = null;
     selectedRef.current = id;
     setSelectedId(id);
-    if (id !== null) setAdding(false);
+    setNotice(null);
+    if (id !== null) setAdding(null);
   }
 
   /** Select someone and bring them into view; focus follows, so the keyboard carries on from there. */
@@ -95,7 +100,7 @@ export function GraphScreen({ getLayoutEngine }: Props) {
           className={styles.addButton}
           onClick={() => {
             select(null);
-            setAdding(true);
+            setAdding({});
           }}
         >
           Add person
@@ -113,6 +118,19 @@ export function GraphScreen({ getLayoutEngine }: Props) {
                 }}
               >
                 Try again
+              </button>
+            </div>
+          ) : null}
+          {notice ? (
+            <div role="alert" className={styles.alert}>
+              <span>{notice}</span>{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setNotice(null);
+                }}
+              >
+                Dismiss
               </button>
             </div>
           ) : null}
@@ -143,13 +161,27 @@ export function GraphScreen({ getLayoutEngine }: Props) {
         ) : null}
         {adding ? (
           <AddPersonPanel
-            onCreated={(id) => {
-              setAdding(false);
-              reveal(id);
+            // a different add form (a relative's, or the plain one) must not inherit typed text or a running save
+            key={
+              adding.relation ? `${adding.relation.role}-${String(adding.relation.ofId)}` : 'new'
+            }
+            relation={adding.relation}
+            onCreated={(id, outcome) => {
+              if (outcome.open) {
+                setAdding(null);
+                reveal(id);
+              }
+              // said even if the user has moved on: the person exists but is not linked
+              if (outcome.linkError !== undefined && outcome.relation) {
+                setNotice(
+                  `The new person was added, but not linked to ${outcome.relation.ofName}: ${describeWriteError(outcome.linkError)}`,
+                );
+              }
             }}
             onCancel={() => {
-              setAdding(false);
-              addButtonRef.current?.focus();
+              setAdding(null);
+              if (adding.relation) viewRef.current?.focusPerson(adding.relation.ofId);
+              else addButtonRef.current?.focus();
             }}
           />
         ) : selected ? (
@@ -166,6 +198,11 @@ export function GraphScreen({ getLayoutEngine }: Props) {
               select(null);
             }}
             onGoTo={reveal}
+            onAddNew={(role, kind) => {
+              setAdding({
+                relation: { role, kind, ofId: selected.id, ofName: displayName(selected) },
+              });
+            }}
             onDeleted={(id) => {
               // the user may have chosen someone else while the delete was running
               if (selectedRef.current !== id) return;

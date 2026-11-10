@@ -56,28 +56,53 @@ export function comparePeople(a: Person, b: Person): number {
 
 export interface Relatives {
   parents: readonly Person[];
+  /** Everyone in a union with this person, whether recorded as partners or only sharing a child. */
   partners: readonly Person[];
   children: readonly Person[];
+  /**
+   * The recorded partnership kind for each partner, or null when the two are only linked by a shared
+   * child (no partnership is recorded, so there is nothing to change or remove).
+   */
+  partnerKinds: ReadonlyMap<number, string | null>;
 }
 
 /** Direct relatives of one person, each list in display order. */
 export function relativesOf(family: FamilyGraph, id: number): Relatives {
   const pick = (ids: readonly number[] | undefined): Person[] =>
     (ids ?? []).flatMap((other) => family.personById.get(other) ?? []);
-  const partnerIds = family.unions.flatMap((union) =>
-    union.partners[0] === id
-      ? [union.partners[1]]
-      : union.partners[1] === id
-        ? [union.partners[0]]
-        : [],
-  );
-  // a union can exist only because of shared children; those two are still partners to the reader
+  const partnerKinds = new Map<number, string | null>();
+  for (const union of family.unions) {
+    if (union.partners[0] === id) partnerKinds.set(union.partners[1], union.kind);
+    else if (union.partners[1] === id) partnerKinds.set(union.partners[0], union.kind);
+  }
   return {
     parents: pick(family.parentsOf.get(id)),
-    partners: pick(partnerIds).sort(comparePeople),
+    partners: pick([...partnerKinds.keys()]).sort(comparePeople),
     children: pick(family.childrenOf.get(id)),
+    partnerKinds,
   };
 }
+
+/** Everyone reachable from `id` by following `next` (descendants, or ancestors), not including `id`. */
+function reachable(next: ReadonlyMap<number, readonly number[]>, id: number): Set<number> {
+  const seen = new Set<number>();
+  const queue = [id];
+  for (let current = queue.pop(); current !== undefined; current = queue.pop()) {
+    for (const other of next.get(current) ?? []) {
+      if (!seen.has(other)) {
+        seen.add(other);
+        queue.push(other);
+      }
+    }
+  }
+  return seen;
+}
+
+export const descendantsOf = (family: FamilyGraph, id: number): Set<number> =>
+  reachable(family.childrenOf, id);
+
+export const ancestorsOf = (family: FamilyGraph, id: number): Set<number> =>
+  reachable(family.parentsOf, id);
 
 function toPerson(p: PersonSummary): Person {
   return {

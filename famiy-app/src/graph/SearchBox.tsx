@@ -12,14 +12,28 @@ interface Props {
   onChoose: (id: number) => void;
   /** The search input, so the screen can move focus to it (for example after a delete). */
   inputRef?: React.Ref<HTMLInputElement>;
+  /** What the box is for, as its accessible name and placeholder. */
+  label?: string;
+  /** Show results in the page flow instead of floating over what is below (inside a scrolling panel). */
+  inline?: boolean;
+  /** Escape was pressed with nothing left to close or clear. */
+  onEscape?: () => void;
 }
 
 /**
  * Find a person by name (ARIA combobox with a listbox). It searches the people already loaded with
  * the graph, so there is no request per keystroke. Typing opens the list, Up/Down move through it,
- * Enter picks, Escape closes it (and, when it is already closed, clears the text).
+ * Enter picks, Escape closes it (and, when it is already closed, clears the text, and when there is
+ * no text either, tells the owner through `onEscape`).
  */
-export function SearchBox({ persons, onChoose, inputRef }: Props) {
+export function SearchBox({
+  persons,
+  onChoose,
+  inputRef,
+  label = 'Find a person',
+  inline = false,
+  onEscape,
+}: Props) {
   const index = useMemo(() => buildSearchIndex(persons), [persons]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -56,7 +70,8 @@ export function SearchBox({ persons, onChoose, inputRef }: Props) {
       // a search input clears itself on Escape by default; the first press must only close the list
       event.preventDefault();
       if (showList) setOpen(false);
-      else setQuery('');
+      else if (query !== '') setQuery('');
+      else onEscape?.();
     }
   }
 
@@ -69,7 +84,7 @@ export function SearchBox({ persons, onChoose, inputRef }: Props) {
   return (
     <div className={styles.search}>
       <label className="visually-hidden" htmlFor={`${listId}-input`}>
-        Find a person
+        {label}
       </label>
       <input
         id={`${listId}-input`}
@@ -77,7 +92,7 @@ export function SearchBox({ persons, onChoose, inputRef }: Props) {
         type="search"
         role="combobox"
         className={styles.input}
-        placeholder="Find a person"
+        placeholder={label}
         autoComplete="off"
         spellCheck={false}
         value={query}
@@ -101,7 +116,7 @@ export function SearchBox({ persons, onChoose, inputRef }: Props) {
       <div role="status" className="visually-hidden">
         {announcement}
       </div>
-      <div className={styles.popup} hidden={!showList}>
+      <div className={inline ? styles.popupInline : styles.popup} hidden={!showList}>
         <ul id={listId} role="listbox" aria-label="People found" className={styles.list}>
           {showList
             ? people.map((person, position) => (

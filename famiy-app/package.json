@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "api:types": "openapi-typescript ../famiy-api/api/openapi.yaml -o src/api/schema.d.ts",
     "api:types:check": "npm run api:types && git diff --exit-code -- src/api/schema.d.ts",
-    "check": "npm run format:check && npm run typecheck && npm run lint && npm run test && npm run build"
+    "check": "npm run format:check && npm run typecheck && npm run lint && npm run test && npm run build",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "5.107.1",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.65.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
