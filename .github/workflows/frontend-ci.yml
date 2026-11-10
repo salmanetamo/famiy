@@ -1,0 +1,51 @@
+name: frontend-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ["famiy-app/**", "famiy-api/api/openapi.yaml", ".github/workflows/frontend-ci.yml"]
+  pull_request:
+    paths: ["famiy-app/**", "famiy-api/api/openapi.yaml", ".github/workflows/frontend-ci.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: famiy-app
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: famiy-app/.nvmrc
+          cache: npm
+          cache-dependency-path: famiy-app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: API types are up to date with openapi.yaml
+        run: npm run api:types:check
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

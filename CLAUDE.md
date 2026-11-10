@@ -11,12 +11,12 @@ Do not relitigate accepted ADRs; propose a new/updated ADR instead.
 
 ## Locked stack (see ADRs, not duplicated here)
 - Backend: Go REST API, PostgreSQL only, recursive CTEs for traversal (ADR-001, 003).
-- Frontend (later): React + TypeScript; elkjs layout, SVG rendering (ADR-002).
+- Frontend: React + TypeScript; elkjs layout in a Web Worker, custom SVG rendering (ADR-002, 005).
 - Modular monolith: `person`, `relationship`, `platform`. Keep it simple.
 
 ## Repo layout
 - `famiy-api/`  Go backend (own go.mod). See `famiy-api/CLAUDE.md`.
-- `famiy-app/`  frontend (not created yet).
+- `famiy-app/`  React + TypeScript frontend (own package.json). See `famiy-app/CLAUDE.md`.
 - `deploy/`     docker-compose, Caddyfile.
 - `docs/`       requirements, ADRs, status, architecture docs.
 - `pocs/`       finished proofs of concept; reference only, do not extend.

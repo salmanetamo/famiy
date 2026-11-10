@@ -9,3 +9,6 @@
 Makefile    text eol=lf
 Dockerfile  text eol=lf
 .dockerignore text eol=lf
+
+# Frontend: Prettier is configured for LF; keep checkouts LF on Windows (core.autocrlf)
+famiy-app/** text eol=lf
