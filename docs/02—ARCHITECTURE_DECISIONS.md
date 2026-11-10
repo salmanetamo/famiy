@@ -5,6 +5,8 @@ Phase 4 complete (2026-11-04). ADR-001 to ADR-004 are accepted. The two sub-deci
 that were gated on proofs of concept (PoC-1, PoC-2/3) were resolved in Phase 3. ADR-004
 (authentication and ownership) was added and implemented in Phase 4. Phase 5 (2026-11-05 to
 2026-11-09, closed) added no ADR: its decisions are recorded in `03—PROJECT_STATUS.md`.
+ADR-005 (frontend architecture and rendering library, 2026-11-10) resolves ADR-002's last open
+sub-decision.
 
 ### Decisions at a glance
 | ADR | Area | Decision | Status |
@@ -13,6 +15,7 @@ that were gated on proofs of concept (PoC-1, PoC-2/3) were resolved in Phase 3. 
 | 002 | Visualization & layout | Decoupled layout/render; elkjs `layered` + union nodes + couple containers; SVG (PoC-2 + PoC-3) | **Accepted — layout & SVG both validated**; rendering *library* decided in build phase |
 | 003 | Backend language | Go (REST API) | Accepted |
 | 004 | Authentication & ownership | Server-side sessions + argon2id passwords; `owner_user_id` on `person`; bounded open registration | **Accepted 2026-11-03**; implemented and amended after security review (2026-11-04) |
+| 005 | Frontend | Custom React + SVG over elkjs; layout in a Web Worker; TanStack Query; Vite proxy; generated API types (PoC-4) | **Accepted 2026-11-10**; scaffold implemented, nothing else built |
 
 Guiding principles for this project: keep domain data separate from visual
 layout state; model kinship as a DAG (two parents), not a tree; derive what can
@@ -222,9 +225,8 @@ insufficient on real hardware.
   by PoC-2: adopt elkjs, augmented with union nodes + couple containers.**
 - ~~SVG vs. Canvas/WebGL for the MVP~~ — **resolved by PoC-3: SVG, with a culling
   + transform ladder before Canvas.**
-- Final rendering *library*: Cytoscape.js vs. React Flow — still open, decide in
-  the build phase (both can drive an SVG renderer; choice is about DX and the
-  built-in graph-algorithm/interaction APIs, not raw render performance).
+- ~~Final rendering *library*: Cytoscape.js vs. React Flow~~ — **resolved by ADR-005
+  (PoC-4, 2026-11-10): custom React + SVG** fed by elkjs coordinates.
 
 ---
 
@@ -409,3 +411,72 @@ Reopen when (a) a second person needs to see another's tree (collaboration → t
 (b) email infrastructure is added (verification, reset), (c) the app runs on more than
 one instance (limiter and cap need shared state), or (d) users ask for Google/other
 single sign-on.
+
+---
+
+### ADR-005: Frontend architecture and rendering library
+**Date:** 2026-11-10
+**Status:** **Accepted 2026-11-10** (owner approved decisions a–g, and the later change to b, after the
+PoC-4 spike). The scaffold is implemented and its checks pass locally; nothing else in the frontend is built.
+CI for the new workflow has not run on GitHub. Nothing is deployed. Resolves ADR-002's open sub-decision
+(rendering library).
+
+**Context:**
+Phase 6 builds `famiy-app/` on the frozen Phase 5 API. ADR-002 fixed the layout approach (elkjs
+`layered`, union nodes, couple containers) and the render technology (SVG) and left the library open.
+Constraints are unchanged: one ≤ $10/month VM, solo maintenance, up to 10,000 persons per account
+(hard cap), read-heavy.
+
+**Decision:**
+- **a. Rendering: custom React + SVG** fed by elkjs coordinates and edge routes. Not React Flow, not
+  Cytoscape.js.
+- **b. Layout runs in a Web Worker from the start**, behind `layout(graph): Promise<Layout>`. (The first
+  recommendation was main thread until measured; the spike measured it, see below.)
+- **c. Server state: TanStack Query**; after a mutation, refetch `/graph`.
+- **d. Dev setup: Vite proxy**, browser stays same-origin, `changeOrigin` off.
+- **e. API types: generated** by `openapi-typescript` from `famiy-api/api/openapi.yaml` and committed; a CI
+  step regenerates and fails on a diff. A thin hand-written fetch client wraps them.
+- **f. Tests:** Vitest + Testing Library; layout and kinship logic tested as pure functions; Playwright
+  smoke tests from the editing slice, against a throwaway database and one fixed account.
+- **g. Styling:** plain CSS with custom properties and CSS modules. Accessibility baseline: semantic HTML,
+  labelled controls, visible focus, `aria-live` errors, focusable graph nodes with arrow-key movement.
+
+**Evidence (PoC-4, `pocs/poc4-render-lib/`, 2026-11-09; headless Chromium, software-rendered, 3 runs,
+median):** the same ELK layout drawn by each candidate, 1,000 persons.
+
+| | initial render | pan/zoom FPS | selection cost | DOM elements |
+|---|---|---|---|---|
+| custom SVG | 170 ms | 37 | 5 ms | 4,869 |
+| React Flow | 648 ms | 49 | 85 ms | 9,999 |
+| React Flow + built-in culling | 337 ms | 60 | 100 ms | 381 |
+| Cytoscape.js (canvas) | 1,178 ms | 45 | 7 ms | 15 |
+
+Custom SVG renders and restyles fastest but pans slowest without culling (consistent with PoC-3), so
+culling (ADR-002 ladder step 2) is the planned relief and is simplest in our own code. React Flow doubles
+the DOM; its selection row reflects naive use, not its ceiling. Cytoscape is canvas (against ADR-002), not
+React-native, and slowest to render; not tuned. ELK layout took **2.4–3.2 s for 1,000 persons** (Node, fresh
+process, 4 runs), about 25× the 100 ms threshold set for decision b, so the layout moves off the main
+thread. Not measured: a real GPU or device, layout inside a worker, memory.
+
+**Pinned versions (verified on the npm registry 2026-11-10):** Vite 8.3.6, React 19.3.1, **TypeScript 6.0.3**,
+Vitest 5.1.0, ESLint 10.14.0, typescript-eslint 8.72.1, Prettier 3.9.10, openapi-typescript 7.13.0,
+elkjs 0.12.1 (spike), jsdom 29.1.1, Node 22.13+. Two version findings: **TypeScript 7.0.2 is the latest but
+typescript-eslint 8.72.1 declares `typescript <6.1.0`, so TypeScript is held at 6.0.3**; and jsdom 30+ needs Node
+≥ 22.22.2, above the owner's 22.17.1, so jsdom stays on 29.x. openapi-typescript declares a TypeScript 5
+peer, so `package.json` carries an `overrides` entry pointing it at the project's TypeScript; the generator
+ran and produced `src/api/schema.d.ts` with TypeScript 6.0.3 (checked once, not exhaustively).
+
+**Consequences:**
+- The union-node and couple-container augmentation from PoC-2 is reimplemented in TypeScript, extended for
+  unions derived from shared children, single-parent children, and unknown birth dates.
+- A worker adds a message boundary: the layout input and output must be plain serialisable data.
+- Culling, accessibility of a custom SVG, and edge hit-testing are ours to build.
+- Every pin above must be re-verified when bumped; TypeScript 7 waits for typescript-eslint support.
+
+**Dev proxy (implemented, run by hand 2026-11-10):** `/api/*` proxied to the Go API with the prefix removed.
+Through the proxy, a same-origin POST reached the handler (401 for wrong credentials), a foreign `Origin`
+got 403 `origin_not_allowed`, and responses carry no `Access-Control-*` headers. Mutation check: with
+`changeOrigin: true` the same POST got 403; restored, 401. Not covered by an automated test.
+
+**Revisit trigger:** reopen the library choice if the culled custom renderer cannot hold ~60 FPS at 1,000
+visible persons on a real device, or if accessibility or hit-testing cost outweighs the control gained.

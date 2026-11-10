@@ -1,11 +1,13 @@
 # Project Status — Family Graph
 
-_Last updated: 2026-11-09_
+_Last updated: 2026-11-10_
 
 ## Current phase
-**Phase 5 — complete the backend API for the MVP's data: closed (2026-11-09), at the owner's word.**
-Phases 1–5 are done. Next: **Phase 6 = frontend** (`famiy-app/`) and **Phase 7 = deployment**.
-Neither has started. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
+**Phase 6 — frontend (`famiy-app/`): in progress. Slice 0 (spike and scaffold) is implemented, uncommitted.**
+Slices 1–6 (auth shell, read-only graph, detail and search, editing, scale, optional "how are we
+related") have not started. See "Phase 6, slice 0" below and ADR-005. Phase 7 = deployment has not started.
+
+Phase 5 (the backend API) closed 2026-11-09 at the owner's word. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
 (3) partnership API, (4) bio and residence, (5) derived kinship (descendants, siblings,
 relationship). Photo was deferred to its own decision, and the ego-network endpoint for viewport
 culling stays deferred until the frontend measures a need. No ADR was written in Phase 5; its
@@ -25,6 +27,20 @@ deployed.**
 | `go test -race` | **Never run on this machine** (no cgo toolchain). It runs in CI, so it is covered only as far as the owner's report is |
 | `make api-lint` (Redocly) | The owner confirmed it for Phase 4. **Not reported to me for the Phase 5 changes.** I checked that the OpenAPI file parses as YAML and is valid UTF-8; I have not run Redocly |
 | Nothing is deployed | Fact: no host, no Caddy, no TLS, no production database |
+
+## Phase 6, slice 0 — spike and scaffold (2026-11-10; working tree, not committed; nothing deployed)
+| Item | State |
+|---|---|
+| PoC-4 (`pocs/poc4-render-lib/`): custom React+SVG vs React Flow vs Cytoscape.js on the PoC-2 fixture and a synthetic 1,000-person graph, same ELK layout for all | **Run by me**, 3 runs per case, headless Chromium (software-rendered, so conservative). Numbers in ADR-005 and the PoC README. Cytoscape and React Flow were not tuned. **Not measured:** a real device or GPU, layout inside a worker, memory |
+| ELK layout time at 1,000 persons: 2.4–3.2 s (Node, 4 fresh-process runs) | **Run by me.** Led to the owner-approved change: layout in a Web Worker from the start |
+| ADR-005 (library and frontend architecture, decisions a–g) | written, accepted by the owner 2026-11-10 |
+| `famiy-app/` scaffold: Vite 8.3.6, React 19.3.1, strict TypeScript 6.0.3, ESLint 10 (strictTypeChecked), Prettier, Vitest 5.1.0 + Testing Library, `openapi-typescript` 7.13.0 → `src/api/schema.d.ts` (1,572 lines, generated from the current `openapi.yaml`), placeholder page + one test | **Run by me:** `npm run typecheck`, `lint`, `format:check`, `test` (1 test, passes) and `build` all pass, locally, on Node 22.17.1 |
+| Version findings | TypeScript 7.0.2 exists but typescript-eslint 8.72.1 requires `<6.1.0`, so TypeScript is pinned to 6.0.3. jsdom 29.1.1 (jsdom 30+ needs Node ≥ 22.22.2). openapi-typescript needs an `overrides` entry for its TypeScript 5 peer |
+| Vite dev proxy `/api` → `http://localhost:8080` (prefix stripped, `changeOrigin: false`) | **Run by me against the real API and dev database:** GET through the proxy returned the health response; a same-origin POST reached the handler (401); a foreign Origin got 403 `origin_not_allowed`; no `Access-Control-*` headers. Mutation: `changeOrigin: true` made the same POST return 403, and restoring it returned 401. No automated test covers this |
+| `.github/workflows/frontend-ci.yml` (install, API types check, format, typecheck, lint, test, build) | **Written, not run on GitHub.** `actions/setup-node` v7 checked as the latest major (v7.1.0). Open a PR for the result to be readable |
+| `npm run api:types:check` | **Not demonstrated.** It compares against git, and `schema.d.ts` is not committed yet, so it passes vacuously until you commit; I have not shown it fails on a stale file |
+| `famiy-app/CLAUDE.md`, `run-web-checks` skill, `web-reviewer` agent, root `CLAUDE.md`, `.gitattributes` (LF for `famiy-app/**`) | written. The agent and skill have **not been used yet**. `web-reviewer` has not reviewed this slice |
+| Not done in this slice | no features, no Playwright, no frontend tests beyond the one placeholder test |
 
 ## Phase 5 outcome: proposed / implemented / tested / deployed
 
@@ -262,8 +278,10 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
 None.
 
 ## Open questions
-- Final rendering *library* (Cytoscape.js vs. React Flow) — decide when the frontend starts
-  (DX / graph APIs, not render performance).
+- ~~Final rendering library~~ — resolved by ADR-005 / PoC-4: custom React + SVG.
+- Real-device performance of the custom SVG renderer and of the layout worker (not measured; slice 5).
+- Whether the `api:types:check` drift check actually fails on a stale file (to demonstrate once
+  `schema.d.ts` is committed).
 - Hosting provider (Hetzner leaning on price/performance) — confirm at deploy time.
 - Deploy-time checks that need Caddy and a real host: the `Secure`/`__Host-` cookie over real
   HTTPS, and the correct `TRUSTED_PROXIES` value (the server warns at startup when it is empty).
@@ -329,7 +347,11 @@ None.
   account's creates only. A collision between two huge owner ids would only add waiting.
 
 ## Next actions
-Phase 5 is closed. In suggested order:
+Phase 6 slice 0 is implemented and uncommitted. Immediately next: review it, commit it (suggested
+branch `feat/frontend-scaffold`, `feat: scaffold famiy-app` plus `docs: add ADR-005`), open a PR so
+`frontend-ci` is readable, then run `web-reviewer` and design slice 1 (auth shell). Still outstanding
+from before: the `make api-lint` result for the Phase 5 OpenAPI changes. The list below is the
+original Phase 5-era plan; item 2 is now in progress.
 1. **Owner housekeeping before Phase 6:** run `make api-lint` against the Phase 5 OpenAPI changes
    and tell me the result (I have not run Redocly). Open a PR for future slices so CI results are
    readable from GitHub, not only reported.

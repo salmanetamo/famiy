@@ -80,7 +80,12 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
   Postgres service container, Docker image build). Green on the Phase 4 final commit.
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
+## Frontend (`famiy-app/`)
+**Scaffold implemented (2026-11-10), no features yet.** React + TypeScript, Vite, Vitest. The browser is
+same-origin with the dev server, which proxies `/api/*` to this API. Planned design (ADR-002, ADR-005):
+`GET /graph` through TanStack Query → a pure layout function running in a Web Worker (elkjs `layered`, union
+nodes, couple containers) → a custom React + SVG renderer; domain state and view state kept apart.
+
 ## Not built yet (planned)
-Email verification and password reset, the
-`famiy-app` frontend (React + TypeScript; elkjs layout + SVG per ADR-002), photos,
-and a per-tree ownership model (ownership is per account for now, ADR-004).
+Email verification and password reset, the frontend's features (auth shell, graph, search, editing),
+photos, and a per-tree ownership model (ownership is per account for now, ADR-004).
