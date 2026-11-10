@@ -504,3 +504,17 @@ visible persons on a real device, or if accessibility or hit-testing cost outwei
   centre. A person card is a toggle button: pressing a selected person again deselects, and the label is
   just name and life span (`aria-pressed` carries the selected state). The initial view fits everything if the scale would be at least 0.5, otherwise it shows normal size
   on the earliest-born person.
+
+**Implementation notes (slice 3, 2026-11-10; name search and the person panel):**
+- **Search is local.** The graph already holds every person's summary, so the search box filters those
+  (`src/domain/search.ts`) instead of calling `GET /persons?q=`. It uses the API's documented rule (every
+  word of the query appears in the name, case-insensitive, same ordering) and additionally ignores accents,
+  which the server does not. Trade-off: it only sees people the graph has loaded, so after another client adds
+  someone it finds them only after the graph refetches. The API search is unused for now.
+- **Person panel.** The summary and the parents, partners and children come from the loaded graph, so the
+  panel is useful at once; only bio and residence are fetched (`['person', id]` in TanStack Query, dropped when
+  the session ends). Bio is free text and is shown as plain text, never as markup. A relative's name selects,
+  centres on and focuses that person. The selection summary that slice 2 drew inside the graph moved into this
+  panel (Center and Clear live there).
+- **Seam.** `GraphView` still only draws; the screen around it asks it to centre or focus a person through a
+  small imperative handle (`centerOn`, `focusPerson`). Selection stays view state in `GraphScreen`.

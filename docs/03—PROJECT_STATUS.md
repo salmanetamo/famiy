@@ -3,9 +3,9 @@
 _Last updated: 2026-11-10_
 
 ## Current phase
-**Phase 6 — frontend (`famiy-app/`): in progress. Slices 0 (spike and scaffold) and 1 (auth shell) are committed on `main`. Slice 2 (read-only graph) is implemented and uncommitted.**
-Slices 3–6 (detail and search, editing, scale, optional "how are we related") have not started. See
-"Phase 6, slice 0", "slice 1" and "slice 2" below and ADR-005. Phase 7 = deployment has not started.
+**Phase 6 — frontend (`famiy-app/`): in progress. Slices 0 (spike and scaffold) and 1 (auth shell) are committed on `main`. Slice 2 (read-only graph) is committed. Slice 3 (search and person panel) is implemented and uncommitted.**
+Slices 4–6 (editing, scale, optional "how are we related") have not started. See
+"Phase 6, slice 0" to "slice 3" below and ADR-005. Phase 7 = deployment has not started.
 
 Phase 5 (the backend API) closed 2026-11-09 at the owner's word. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
 (3) partnership API, (4) bio and residence, (5) derived kinship (descendants, siblings,
@@ -42,7 +42,7 @@ deployed.**
 | `famiy-app/CLAUDE.md`, `run-web-checks` skill, `web-reviewer` agent, root `CLAUDE.md`, `.gitattributes` (LF for `famiy-app/**`) | written. The agent and skill have **not been used yet**. `web-reviewer` has not reviewed this slice |
 | Not done in this slice | no features, no Playwright, no frontend tests beyond the one placeholder test |
 
-## Phase 6, slice 1 — auth shell (2026-11-10; working tree, not committed; nothing deployed)
+## Phase 6, slice 1 — auth shell (2026-11-10; committed on `main`; nothing deployed)
 | Item | State |
 |---|---|
 | Typed API client (`src/api/client.ts`, the only `fetch` caller): `ApiError {status, code, message, retryAfterSeconds, requestId}`; network failure → `network_error`; non-JSON or envelope-less response → `unexpected_response`; `Content-Type: application/json` only when there is a body. Auth calls in `src/api/auth.ts` (`me()` returns `null` on `unauthenticated`) | implemented; tested (unit) |
@@ -56,7 +56,7 @@ deployed.**
 | Not covered | an in-browser 401 from a data request (the UI has none yet; covered only by the unit test with a stubbed fetch); the proxy's behaviour on a 502; keyboard use beyond the first Tab; screen-reader behaviour (nothing was run with one); dark mode was not looked at; no Playwright suite yet (slice 4); `frontend-ci` has still not run on GitHub |
 | Review (`web-reviewer`) | One Must-fix, verified by me against the code: a 401 only nulled the session, so the previous account's cached data stayed in memory for the next sign-in on that tab. Fixed with `endSession` / `startSession` (`src/auth/sessionLifecycle.ts`), used by logout, the 401 handler and sign-in, with tests that fail without each part. Also fixed: a pending session check racing a sign-in, a late 401 from before a sign-in, focus lost when the screen changes (now moved to the heading), and the session-error message inserted already filled into a live region (now one persistent `role="status"` region from loading to error). Not applied: scoping `"node"` out of the global `tsconfig` types (the slice 0 reviewer asked for it), `Promise.withResolvers` in one test, and the `.env.example` note. The reviewer read the code and ran `npm run check` but ran no mutations and no browser, so those results are mine |
 
-## Phase 6, slice 2 — read-only graph (2026-11-10; working tree, not committed; nothing deployed)
+## Phase 6, slice 2 — read-only graph (2026-11-10; committed on `main`; nothing deployed)
 | Item | State |
 |---|---|
 | Domain model `buildFamilyGraph`: unions from recorded partnerships (even childless) and from shared children (no partnership needed); one-parent children attach to that parent; dangling ids skipped with a warning; one ordering everywhere (birth date, unknown last, then id) | implemented; tested (messy PoC-2 family, an incomplete-data family, input-order independence, dangling and duplicate links) |
@@ -75,6 +75,20 @@ deployed.**
 | Measured: 1,000 people (synthetic, served to the real app; 2 runs) | "Laying out" shown → last card drawn: 1.6 to 1.8 s; longest main-thread gap during it about 280 ms (React drawing ~6,900 DOM elements). Node-only ELK time was 2.4 to 3.2 s |
 | Dev data | the local dev account now has 21 seeded people |
 | Not covered | screen readers (nothing was run with one); touch and pinch zoom; real-device or GPU frame rate; 5,000 and 10,000 people (slice 5); culling; node duplication for the remarried-and-cross-branch case; styling by partnership kind; browsers other than Chromium; `frontend-ci` on GitHub |
+
+## Phase 6, slice 3 — search and person panel (2026-11-10; working tree, not committed; nothing deployed)
+| Item | State |
+|---|---|
+| Name search (ARIA combobox) over the people already in the graph: every word must match, case- and accent-insensitive, the server's order, at most 8 listed with "N more", result count announced; Up/Down/Enter/Escape; choosing selects, centres and focuses the person | implemented; tested. Decision A (local search, not `GET /persons?q=`) was approved by the owner |
+| Person panel (right side on wide screens, bottom sheet under 40 rem): summary, dates, parents/partners/children from the graph; bio and residence from `GET /persons/{id}` (`['person', id]`), plain text; relatives are buttons that go to that person; a failed fetch keeps the summary and offers Try again | implemented; tested |
+| The slice 2 selection summary moved into the panel; the search box is now the first tab stop and the graph the second (tests updated) | implemented; tested |
+| Frontend tests | **Run by me:** 199 tests in 16 files pass; `npm run check` exits 0 |
+| Mutation checks (22; each removed one protection and a named test failed; files restored, suite green after) | accents not folded, any-word match, no sorting, limit ignored, arrows not moving, Enter not picking, second Escape not clearing, jump not centring, jump not focusing, bio rendered as HTML, detail error hidden, detail cache shared across people, partner on the second side missed, approximate date shown in full, Clear not returning focus, relative button doing nothing, no "more" note, too many results, active descendant missing, list open after blur, Center doing nothing, Escape default not prevented. **Two were not killed or not valid at first:** accent folding survived (a decomposed "ë" still contains "e", so my first test proved nothing; now tests a plain "Zoe" found by "Zoë" and "Éloïse" found by "eloise"), and #13's pattern no longer matched after formatting (fixed and rerun). One run (#18) printed only 53 tests and was rerun clean |
+| Review (`web-reviewer`) | No Must-fix. It read the code only (no run, no browser). **Should-fix 1, verified by me in real Chromium:** on a `type="search"` input the first Escape also cleared the text, so the two-step behaviour was wrong in the browser while jsdom could not show it. Fixed with `preventDefault` and a test that checks it; re-checked in Chromium (first Escape keeps the text, the second clears it). **Should-fix 2, not fixed, recorded below.** Also fixed: a stale comment in `view/dom.ts` and a fixed id for the panel heading (now `useId`) |
+| Bug found by the real browser, not by any test | `--space-2` was never defined, so every CSS declaration using it was dropped silently (the search box touched the screen edge). Token added; I checked that no other CSS variable used in the stylesheets is undefined |
+| Real browser (Playwright/Chromium against the user's running dev servers, read-only; desktop 1280×800 and a 390×780 dark screen) | 21 people drawn; no panel before selecting; typing "dia" lists 8; Enter on "umar" selects Umar, focus lands on the card, the card is centred exactly (640,445 vs 640,445 and 195,441 vs 195,441), the panel lists Ali and Sala as parents, one detail request (`/persons/16`); clicking Ali in the panel moves selection and focus; Escape closes the panel; no console errors. Screenshots viewed (results list; narrow dark panel) |
+| Known limits | choosing a person who is not in the layout yet (the graph refetched and the new layout is still running) opens the panel but does not centre or focus, because the previous layout stays on screen while a new one is computed; narrow window: the centred person can sit behind the panel on mid-width screens (centring uses the whole graph area); the panel opens without its own announcement, so for a click or tap pick nothing is announced beyond the card's `aria-pressed` (no screen reader was run); search sees only people already loaded; the panel shows ISO-derived dates in English (`en-GB`) |
+| Not covered | screen readers; touch; a combobox run with a real assistive technology; `frontend-ci` on GitHub; bio/residence with real data (the dev seed has none, so the browser run showed no notes) |
 
 ## Phase 5 outcome: proposed / implemented / tested / deployed
 
