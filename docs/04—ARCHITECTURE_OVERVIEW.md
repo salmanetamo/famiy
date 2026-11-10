@@ -81,8 +81,8 @@ via the injected `OwnerFunc`, parse id) → `relationship.Service` (confirms the
 - **Deployed:** nothing yet. Caddy/TLS and a migration step are deploy-phase work.
 
 ## Frontend (`famiy-app/`)
-**Implemented (2026-11-10): sign-in, the read-only graph, name search and the person panel. Not yet built:
-editing, culling for large trees.** React + TypeScript, Vite, Vitest. The browser is same-origin with the dev
+**Implemented (2026-11-10): sign-in, the graph, name search, the person panel, and adding, editing and
+deleting people. Not yet built: editing parents and partners, culling for large trees.** React + TypeScript, Vite, Vitest. The browser is same-origin with the dev
 server, which proxies `/api/*` to this API. The path (ADR-002, ADR-005): `GET /graph` through TanStack Query
 → `buildFamilyGraph` (unions from partnerships and shared children) → a pure layout function that runs ELK
 (`layered`, union nodes, couple containers) in a Web Worker → a custom React + SVG renderer with pan, zoom,

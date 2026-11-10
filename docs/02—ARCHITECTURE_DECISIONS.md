@@ -518,3 +518,19 @@ visible persons on a real device, or if accessibility or hit-testing cost outwei
   panel (Center and Clear live there).
 - **Seam.** `GraphView` still only draws; the screen around it asks it to centre or focus a person through a
   small imperative handle (`centerOn`, `focusPerson`). Selection stays view state in `GraphScreen`.
+
+**Implementation notes (slice 4a, 2026-11-10; add, edit and delete a person):**
+- **Writes are not optimistic.** Every write goes through a TanStack Query mutation that, on success, refetches
+  `['graph']` (there is no delta endpoint) and stays pending until that is done. A wrong picture of a family is
+  worse than a short wait, and the server's 409s and 400s are expected outcomes. A failed refetch does not fail
+  the write; the screen's own "could not refresh" alert covers it.
+- **Revealing a person waits for the layout.** Selecting someone is immediate; centring and focusing happen in
+  an effect once the *current* layout contains them. That fixes the slice 3 limit (a just-added person is not in
+  the old layout, which stays on screen while the new one is computed).
+- **A save outlives the screen that started it.** The write continues if the user chooses someone else; only the
+  follow-up that selects the new person (or clears the selection after a delete) is skipped when it no longer
+  applies.
+- **The edit baseline is a snapshot.** A patch is computed against what the form was opened with, not live query
+  data, so a refetch during editing cannot make untouched fields look changed and overwrite another change.
+- **Busy buttons stay focusable** (`aria-disabled` plus a guard in the handler), because a disabled button drops
+  keyboard focus. Delete is an inline confirmation in the panel (not a `<dialog>`), with focus on Cancel.

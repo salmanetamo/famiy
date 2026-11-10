@@ -24,7 +24,7 @@ it by hand) · `npm run api:types:check` (CI: fails if the committed file is sta
    (gitignored) and set `E2E_PASSWORD`; register it once through the UI. Registration is capped by
    `MAX_USERS` and rate-limited per address, so reuse the account instead of registering per test.
 
-5. An empty account shows "Your tree is empty" and editing arrives in a later slice, so seed one:
+5. An empty account shows "Your tree is empty" and you can add the first person with "Add person", or seed a sample family:
    `node scripts/seed-dev.mjs` (the PoC-2 family plus an incomplete-data family, 21 people, through the
    real API; refuses if the account already has people). `--count N` makes about N synthetic people.
 6. If the page says "The server isn't reachable", the API is not running (Vite's proxy answers 502).
