@@ -534,3 +534,20 @@ visible persons on a real device, or if accessibility or hit-testing cost outwei
   data, so a refetch during editing cannot make untouched fields look changed and overwrite another change.
 - **Busy buttons stay focusable** (`aria-disabled` plus a guard in the handler), because a disabled button drops
   keyboard focus. Delete is an inline confirmation in the panel (not a `<dialog>`), with focus on Cancel.
+
+**Implementation notes (slice 4b, 2026-11-10; relationships and the first end-to-end test):**
+- **The picker offers only what the server would accept** (`domain/candidates.ts`, pure): not the person
+  themself, not an existing relative of that kind, never a descendant as a parent or an ancestor as a child
+  (a cycle), nobody with two parents as a child. The graph is already loaded, so this costs no request. The
+  server remains the authority; if the two ever disagree its refusal is shown.
+- **"Add child" is a parent link from the other side.** There is no child endpoint, so adding or removing a child
+  is the same call as adding or removing a parent, with the two ids the other way round. A new person added as
+  a relative is created first and then linked; if the link fails the person is kept and the failure is reported,
+  even when the user has moved on.
+- **A partnership exists in the data only when it is recorded.** Two people who merely share a child are drawn
+  as a couple (slice 2) but have no recorded partnership, so the panel shows them as "(shared child)" with no
+  kind to change and nothing to remove; "Add partner" can record one.
+- **End-to-end test.** `npm run e2e` (Playwright, Chromium) drives the real app against the real API and
+  database. It is local only: it is not in `npm run check` and not in CI, which has no database for it. It uses
+  one dedicated account (the API cannot delete accounts and caps them), empties it before starting and deletes
+  what it adds.
