@@ -1,0 +1,23 @@
+{
+  "name": "poc4-render-lib",
+  "private": true,
+  "version": "0.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "layout": "node layout.cjs",
+    "build": "vite build",
+    "bench": "node run.cjs"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.12.1",
+    "cytoscape": "3.34.4",
+    "elkjs": "0.12.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "latest",
+    "playwright": "latest",
+    "vite": "8.3.6"
+  }
+}

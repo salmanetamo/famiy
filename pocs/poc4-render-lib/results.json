@@ -1,0 +1,79 @@
+[
+  {
+    "lib": "svg",
+    "data": "small",
+    "cull": 0,
+    "persons": 12,
+    "domEls": 69,
+    "renderMs": 64.9,
+    "fps": 59.9,
+    "drop": 0,
+    "selectMs": 1.1
+  },
+  {
+    "lib": "rf",
+    "data": "small",
+    "cull": 0,
+    "persons": 12,
+    "domEls": 140,
+    "renderMs": 79.4,
+    "fps": 60.2,
+    "drop": 0,
+    "selectMs": 6.3
+  },
+  {
+    "lib": "cy",
+    "data": "small",
+    "cull": 0,
+    "persons": 12,
+    "domEls": 15,
+    "renderMs": 306.1,
+    "fps": 59.9,
+    "drop": 0,
+    "selectMs": 0.6
+  },
+  {
+    "lib": "svg",
+    "data": "1k",
+    "cull": 0,
+    "persons": 1000,
+    "domEls": 4869,
+    "renderMs": 170.4,
+    "fps": 37,
+    "drop": 17,
+    "selectMs": 5.1
+  },
+  {
+    "lib": "rf",
+    "data": "1k",
+    "cull": 0,
+    "persons": 1000,
+    "domEls": 9999,
+    "renderMs": 648.1,
+    "fps": 49.3,
+    "drop": 6,
+    "selectMs": 84.5
+  },
+  {
+    "lib": "rf",
+    "data": "1k",
+    "cull": 1,
+    "persons": 1000,
+    "domEls": 381,
+    "renderMs": 336.9,
+    "fps": 59.9,
+    "drop": 0,
+    "selectMs": 99.6
+  },
+  {
+    "lib": "cy",
+    "data": "1k",
+    "cull": 0,
+    "persons": 1000,
+    "domEls": 15,
+    "renderMs": 1178.2,
+    "fps": 45.5,
+    "drop": 13,
+    "selectMs": 7.4
+  }
+]
