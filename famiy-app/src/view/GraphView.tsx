@@ -1,11 +1,28 @@
-import { memo, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { FamilyGraph } from '../domain/family';
-import type { Layout } from '../layout/types';
+import type { Layout, PositionedUnion, RoutedEdge } from '../layout/types';
 import styles from './GraphView.module.css';
 import { neighbour, type Direction } from './neighbours';
 import { GRAPH_CONTROLS_ATTRIBUTE, isFromGraphControl } from './dom';
 import { PersonNode } from './PersonNode';
+import {
+  makeWindow,
+  viewportWorldRect,
+  visibleSet,
+  windowNeedsUpdate,
+  type RenderWindow,
+} from './renderWindow';
 import { useViewportControls } from './useViewportControls';
+import type { Size, Viewport } from './viewport';
 
 const ZOOM_STEP = 1.25;
 const KEY_PAN_PX = 80;
@@ -31,18 +48,24 @@ function personIdFrom(target: EventTarget): number | null {
   return Number.isInteger(id) ? id : null;
 }
 
-/** Edges and union dots do not change when someone is selected, so they are drawn once per layout. */
-const Connections = memo(function Connections({ layout }: { layout: Layout }) {
+/** Edges and union dots do not change when someone is selected, so they are drawn once per window. */
+const Connections = memo(function Connections({
+  edges,
+  unions,
+}: {
+  edges: readonly RoutedEdge[];
+  unions: readonly PositionedUnion[];
+}) {
   return (
     <>
-      {layout.edges.map((edge) => (
+      {edges.map((edge) => (
         <polyline
           key={edge.id}
           className={edge.kind === 'partner' ? styles.partnerEdge : styles.descentEdge}
           points={edge.points.map((p) => `${String(p.x)},${String(p.y)}`).join(' ')}
         />
       ))}
-      {layout.unions.map((union) => (
+      {unions.map((union) => (
         <circle
           key={union.id}
           className={styles.union}
@@ -79,7 +102,32 @@ export function GraphView({ layout, family, selectedId, onSelect, ref }: Props) 
   const firstBox = earliest ? boxes.get(earliest.id) : undefined;
   const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<SVGGElement>(null);
-  const controls = useViewportControls(containerRef, groupRef, layout, firstBox);
+  // What is drawn: only what lies inside this window around the view (see renderWindow.ts). It is
+  // replaced when the view leaves it, not on every frame of a pan or zoom.
+  const [renderWindow, setRenderWindow] = useState<RenderWindow | null>(null);
+  const windowRef = useRef<RenderWindow | null>(null);
+  const onViewChange = useCallback((view: Viewport, size: Size) => {
+    const viewRect = viewportWorldRect(view, size);
+    if (!windowNeedsUpdate(windowRef.current, viewRect, view.k)) return;
+    const next = makeWindow(viewRect, view.k, windowRef.current?.compact ?? false);
+    windowRef.current = next;
+    setRenderWindow(next);
+  }, []);
+  const controls = useViewportControls(containerRef, groupRef, layout, firstBox, onViewChange);
+
+  // A resized container shows a different part of the world, so the window may need replacing.
+  const { notify } = controls;
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      notify();
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [notify]);
 
   // Which person is the tab stop. It follows real DOM focus (see onFocus), never the other way round.
   const [focusId, setFocusId] = useState<number | null>(null);
@@ -92,12 +140,46 @@ export function GraphView({ layout, family, selectedId, onSelect, ref }: Props) 
         ? selectedId
         : (earliest?.id ?? null);
 
-  /** Every person is always in the DOM, so focus can move straight to them. */
+  // Someone outside the window is not in the DOM. To focus them they are drawn first (forcedId), and
+  // focused as soon as they exist (the layout effect below). forcedId stays until the next jump; once
+  // the person has focus they are also the tab stop, so this costs at most one extra card.
+  const [forcedId, setForcedId] = useState<number | null>(null);
+  const pendingFocus = useRef<number | null>(null);
+  const personElement = (id: number) =>
+    containerRef.current?.querySelector<SVGGElement>(`[data-person-id="${String(id)}"]`);
+
   function focusPerson(id: number) {
-    containerRef.current
-      ?.querySelector<SVGGElement>(`[data-person-id="${String(id)}"]`)
-      ?.focus({ preventScroll: true });
+    if (!boxes.has(id)) return;
+    const element = personElement(id);
+    if (element) {
+      element.focus({ preventScroll: true });
+      return;
+    }
+    pendingFocus.current = id;
+    setForcedId(id);
   }
+
+  useLayoutEffect(() => {
+    const id = pendingFocus.current;
+    if (id === null) return;
+    // One attempt per request. The person was added to the drawn set in this same commit, so the
+    // element exists; if it does not (they left the layout), a later render must not steal focus.
+    pendingFocus.current = null;
+    personElement(id)?.focus({ preventScroll: true });
+  });
+
+  // The window's contents. The people who must stay in the DOM wherever the view is: the one with
+  // focus (focus would be lost), the selected one, the tab stop, and one about to be focused.
+  const seen = useMemo(
+    () => (renderWindow === null ? null : visibleSet(layout, renderWindow.rect)),
+    [layout, renderWindow],
+  );
+  const drawnPersons = useMemo(() => {
+    if (seen === null) return [];
+    const ids = new Set(seen.persons.map((person) => person.id));
+    for (const id of [selectedId, forcedId, tabbableId]) if (id !== null) ids.add(id);
+    return layout.persons.filter((person) => ids.has(person.id));
+  }, [seen, layout, selectedId, forcedId, tabbableId]);
 
   useImperativeHandle(ref, () => ({
     centerOn(id) {
@@ -178,10 +260,18 @@ export function GraphView({ layout, family, selectedId, onSelect, ref }: Props) 
       onKeyDown={onKeyDown}
       onFocus={onFocus}
     >
-      <svg className={styles.svg} role="group" aria-label="Family graph">
+      <svg
+        className={styles.svg}
+        role="group"
+        aria-label={
+          drawnPersons.length < layout.persons.length
+            ? `Family graph, ${String(layout.persons.length)} people. Only those near the view are drawn; use the search box to find anyone else.`
+            : 'Family graph'
+        }
+      >
         <g ref={groupRef} className={styles.world}>
-          <Connections layout={layout} />
-          {layout.persons.map((box) => {
+          {seen ? <Connections edges={seen.edges} unions={seen.unions} /> : null}
+          {drawnPersons.map((box) => {
             const person = family.personById.get(box.id);
             return person ? (
               <PersonNode
@@ -190,6 +280,7 @@ export function GraphView({ layout, family, selectedId, onSelect, ref }: Props) 
                 box={box}
                 selected={box.id === selectedId}
                 tabbable={box.id === tabbableId}
+                compact={renderWindow?.compact ?? false}
               />
             ) : null;
           })}

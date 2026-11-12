@@ -14,13 +14,21 @@ interface Props {
   selected: boolean;
   /** Roving tabindex: exactly one person in the graph is a tab stop. */
   tabbable: boolean;
+  /** Zoomed so far out that text cannot be read: draw only the rectangle. */
+  compact: boolean;
 }
 
 /**
  * One person card. It is memoised, so selecting someone redraws two cards, not the whole graph.
  * Clicks and keys are handled once on the graph (event delegation) via `data-person-id`.
  */
-export const PersonNode = memo(function PersonNode({ person, box, selected, tabbable }: Props) {
+export const PersonNode = memo(function PersonNode({
+  person,
+  box,
+  selected,
+  tabbable,
+  compact,
+}: Props) {
   const name = displayName(person);
   const span = lifespan(person);
   return (
@@ -33,14 +41,28 @@ export const PersonNode = memo(function PersonNode({ person, box, selected, tabb
       aria-label={personLabel(person)}
       aria-pressed={selected}
     >
-      <title>{span ? `${name} (${span})` : name}</title>
       <rect width={box.width} height={box.height} rx={8} />
-      <text className={styles.name} x={box.width / 2} y={box.height / 2 - 4} textAnchor="middle">
-        {truncate(name, NAME_CHARS)}
-      </text>
-      <text className={styles.span} x={box.width / 2} y={box.height / 2 + 14} textAnchor="middle">
-        {span}
-      </text>
+      {compact ? null : (
+        <>
+          <title>{span ? `${name} (${span})` : name}</title>
+          <text
+            className={styles.name}
+            x={box.width / 2}
+            y={box.height / 2 - 4}
+            textAnchor="middle"
+          >
+            {truncate(name, NAME_CHARS)}
+          </text>
+          <text
+            className={styles.span}
+            x={box.width / 2}
+            y={box.height / 2 + 14}
+            textAnchor="middle"
+          >
+            {span}
+          </text>
+        </>
+      )}
     </g>
   );
 });

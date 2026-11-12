@@ -19,7 +19,8 @@
     "api:types": "openapi-typescript ../famiy-api/api/openapi.yaml -o src/api/schema.d.ts",
     "api:types:check": "npm run api:types && git diff --exit-code -- src/api/schema.d.ts",
     "check": "npm run format:check && npm run typecheck && npm run lint && npm run test && npm run build",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "bench:scale": "vite build && node scripts/bench-scale.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.107.1",

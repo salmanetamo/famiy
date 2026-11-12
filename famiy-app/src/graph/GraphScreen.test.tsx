@@ -172,6 +172,12 @@ describe('GraphView', () => {
     expect(uma.querySelector('title')?.textContent).toMatch(/Whitfield-Montgomery/);
   });
 
+  it('is named plainly "Family graph" when everyone is drawn', async () => {
+    renderScreen();
+    await waitForPeople(12);
+    expect(screen.getByRole('group', { name: 'Family graph' })).toBeInTheDocument();
+  });
+
   it('is a single tab stop, on the eldest person to begin with', async () => {
     renderScreen();
     await waitForPeople(12);

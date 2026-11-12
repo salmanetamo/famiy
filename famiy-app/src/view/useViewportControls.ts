@@ -39,6 +39,8 @@ export function useViewportControls(
   groupRef: RefObject<SVGGElement | null>,
   layout: Layout,
   firstPerson: Rect | undefined,
+  /** Told about every change of the view (pan, zoom, fit), with the view and the container size. */
+  onViewChange?: (view: Viewport, size: Size) => void,
 ) {
   const view = useRef<Viewport>({ x: 0, y: 0, k: 1 });
   const animation = useRef<number | null>(null);
@@ -54,6 +56,12 @@ export function useViewportControls(
     return { width: width > 0 ? width : 800, height: height > 0 ? height : 600 };
   }, [containerRef]);
 
+  // Declared before the first layout effect below, which applies the opening view and so notifies.
+  const onViewChangeRef = useRef(onViewChange);
+  useLayoutEffect(() => {
+    onViewChangeRef.current = onViewChange;
+  });
+
   const apply = useCallback(
     (next: Viewport) => {
       view.current = next;
@@ -61,8 +69,9 @@ export function useViewportControls(
         'transform',
         `translate(${String(next.x)}px, ${String(next.y)}px) scale(${String(next.k)})`,
       );
+      onViewChangeRef.current?.(next, size());
     },
-    [groupRef],
+    [groupRef, size],
   );
 
   const cancelAnimation = useCallback(() => {
@@ -176,6 +185,11 @@ export function useViewportControls(
     if (dragged.current) setTimeout(() => (dragged.current = false), 0);
   };
 
+  /** Tell the owner about the current view again (the container was resized). */
+  const notify = useCallback(() => {
+    onViewChangeRef.current?.(view.current, size());
+  }, [size]);
+
   const pointerHandlers = {
     onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0 || isFromGraphControl(event.target)) return;
@@ -228,6 +242,7 @@ export function useViewportControls(
     pan,
     centerOnRect,
     isVisible,
+    notify,
     wasDragged: () => dragged.current,
   };
 }
