@@ -1,11 +1,10 @@
 # Project Status — Family Graph
 
-_Last updated: 2026-11-10_
+_Last updated: 2026-11-12_
 
 ## Current phase
-**Phase 6 — frontend (`famiy-app/`): in progress. Slices 0 to 3 (spike and scaffold, auth shell, read-only graph, search and person panel) are committed on `main`. Slice 4a (add, edit and delete a person) is committed. Slice 4b (parents, partners and children, first end-to-end test) is committed. Slice 5 (scale) is built and uncommitted: measurements, then viewport culling. Layout time at 5,000+ people is not fixed.**
-Slice 6 (optional "how are we related") has not started. See
-"Phase 6, slice 0" to "slice 5" below and ADR-005. Phase 7 = deployment has not started.
+**Phase 6 — frontend (`famiy-app/`): closed 2026-11-12 at the owner's word.** Slices 0 to 5 (spike and scaffold, auth shell, read-only graph, search and person panel, add/edit/delete people, parents/partners/children plus the first end-to-end test, scale and viewport culling) are all committed on `main` (latest `c193a1f`). Slice 6 ("how are we related") was optional and was **not built**, by the owner's choice. See "Phase 6 outcome" below and ADR-005.
+Phase 7 = deployment has not started. **Nothing is deployed.**
 
 Phase 5 (the backend API) closed 2026-11-09 at the owner's word. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
 (3) partnership API, (4) bio and residence, (5) derived kinship (descendants, siblings,
@@ -14,8 +13,9 @@ culling stays deferred until the frontend measures a need. No ADR was written in
 decisions are recorded under "Decisions confirmed" below.
 
 ## Current milestone
-The backend API for the MVP's data is complete on `main` (`ce474e1`, 2026-11-09). **Nothing is
-deployed.**
+The backend API for the MVP's data is complete on `main` (`ce474e1`, 2026-11-09), and the frontend
+(`famiy-app/`) covers the MVP's scope on `main` (`c193a1f`, 2026-11-12): sign in, the graph, search,
+editing people and relationships. **Nothing is deployed.**
 
 ### Evidence ledger: what each statement rests on
 | Statement | Basis |
@@ -76,7 +76,7 @@ deployed.**
 | Dev data | the local dev account now has 21 seeded people |
 | Not covered | screen readers (nothing was run with one); touch and pinch zoom; real-device or GPU frame rate; 5,000 and 10,000 people (slice 5); culling; node duplication for the remarried-and-cross-branch case; styling by partnership kind; browsers other than Chromium; `frontend-ci` on GitHub |
 
-## Phase 6, slice 3 — search and person panel (2026-11-10; working tree, not committed; nothing deployed)
+## Phase 6, slice 3 — search and person panel (2026-11-10; committed on `main`; nothing deployed)
 | Item | State |
 |---|---|
 | Name search (ARIA combobox) over the people already in the graph: every word must match, case- and accent-insensitive, the server's order, at most 8 listed with "N more", result count announced; Up/Down/Enter/Escape; choosing selects, centres and focuses the person | implemented; tested. Decision A (local search, not `GET /persons?q=`) was approved by the owner |
@@ -127,7 +127,7 @@ Slice 4 was split by the owner's approval into 4a (people) and 4b (parents, part
 | Known limits | the narrow bottom sheet is cramped (it shows little above the fold); the picker lists matches only after typing (no "browse everyone"); partnership dates are not editable (the API has none); Remove asks no confirmation (a link can be added again); a person with only a shared child can be given a recorded partnership through Add partner, but the row itself offers nothing; the picker shows a kind selector when adding a partner and the kind is also used for a brand-new person; the e2e test is local only; the 401 path is tested for the person writes and one relationship write, not each |
 | Not covered | the e2e test in CI; touch; a screen reader (the combobox inside the panel, the `aria-disabled` buttons); `frontend-ci` on GitHub; mid-width screens where the panel can cover the centred person |
 
-## Phase 6, slice 5, part 1 — scale measurements (2026-11-10; working tree, not committed; nothing deployed)
+## Phase 6, slice 5, part 1 — scale measurements (2026-11-10; committed on `main`; nothing deployed)
 Slice 5 was approved as "measure first, then propose fixes from the numbers". This part is the measurement only.
 
 | Item | State |
@@ -169,7 +169,7 @@ Not done in these parts: any fix. Viewport culling was built afterwards (part 3)
 | **Zoom costs the same at "Fit" as at the opening view** (new metric `zoom after Fit`, one run each, GPU engine): 19 fps against 19 at 2,000 people; 7 against 7 at 5,000. So the zoom cost follows the number of DOM elements, not how many are on screen | **Run by me**; one run per size, so the exact figures are looser than the table above |
 | Caveat on the synthetic family | Its shape is unrealistic: the layout comes out only **4 to 5 generations deep and enormously wide** (about 82,000 px at 1,000 people and 857,000 px at 10,000), because my generator fills one generation after another. A real 10,000-person tree would be deeper and narrower. Layout time may differ for a real shape, and a wide row also means most people are far off screen, which favours culling. The timings are therefore good evidence for the *trend* (about linear) and weaker for the exact seconds | limitation |
 
-### Slice 5, part 3 — viewport culling (2026-11-12; working tree, not committed; nothing deployed)
+### Slice 5, part 3 — viewport culling (2026-11-12; committed on `main`; nothing deployed)
 | Item | State |
 |---|---|
 | **Viewport culling** (ADR-002 ladder step 2): only the people, unions and edges inside a window around the view are drawn. The window is the view plus one view of margin on each side, kept in state, and replaced only when the view leaves it, when it has become 20 times the view's area (zoomed in), or when the cards should switch between full and compact; pan and zoom still run through refs and a CSS transform. Pure maths in `view/renderWindow.ts`; layout is untouched | implemented; tested |
@@ -207,6 +207,72 @@ Reading it:
 | **An unexplained failure** | In one run, at 5,000 people, the "add a person → new card focused" step timed out after 180 s (the first run of that size took 9 s). I ran 10 further attempts at 5,000 people (5 straight after load, 5 after replaying the benchmark's earlier steps: select, search, zoom, Fit, drag), all passed in 5 to 8 s, and a 1,000-person smoke run passed. **Cause unknown**; the machine was visibly slow during that run, and I captured no page state at the time. The benchmark now prints the page's state when that step fails, so a recurrence can be diagnosed | open |
 | Known limits (new) | **People outside the window are not in the DOM, so a screen reader's browse mode no longer lists everyone**; they are reachable by search, by arrow keys (which now draw the neighbour first) and by the relative links in the panel. The graph's accessible name says so. No screen reader was run. Also: "Fit" is clamped at the smallest zoom (0.05), so a very wide tree is not wholly in view; a 10,000-person tree seen from far out still draws every person it can see (as compact cards); the resize path was not seen in a real browser; the software-rendering engine and a phone were not re-measured with culling |
 | Not done | layout time (about 1 ms per person, no cheap fix found, see part 2); starting the layout worker earlier (a fixed cost of roughly 0.8 s, untested); a progress indication beyond the existing "Laying out your family…" status; the 500 ms main-thread block at 10,000 |
+
+## Phase 6 outcome: proposed / implemented / tested / deployed
+
+**Implemented and tested** (Vitest + Testing Library in jsdom, 340 tests in 24 files; one Playwright end-to-end
+test against the real API and database; every protection was removed in turn to show a named test fails):
+
+| Slice | What | Commits |
+|---|---|---|
+| 0 | Rendering-library spike (PoC-4), ADR-005, scaffold (Vite, React, strict TypeScript, ESLint, Prettier, generated API types), `frontend-ci.yml`, project skill and reviewer agent | `a350038`, `546457c`, `f6b95fe` |
+| 1 | Typed API client, session (TanStack Query), sign in / register, 401 handling that drops cached data | `dc9b0b6`, `64432fb` |
+| 2 | Domain model, ELK layout in a Web Worker, SVG graph with pan, zoom, selection and keyboard, dev seed script | `56c1dc2`, `51ecda0` |
+| 3 | Name search (local, accent-insensitive) and the person panel | `f7d2e5e`, `2dc8a83` |
+| 4a | Add, edit and delete a person; graph refetched after each write; reveal waits for the layout | `5bca209`, `21f7350` |
+| 4b | Parents, partners and children from the panel (picker of valid people), add-a-new-relative, first Playwright test | `1f0186b`, `605c54e` |
+| 5 | Scale benchmark, layout-time investigation, viewport culling and compact cards | `44647a3`, `9562962`, `c193a1f` |
+
+**Evidence.** About 150 mutation checks across slices 1 to 5 (each removed one protection and a named test
+failed). Survivors were each resolved one of three ways: a test added, redundant code removed, or an
+equivalent mutant recorded; none was left unexplained. `web-reviewer` ran on every slice (once or twice);
+it found one Must-fix in the whole phase (slice 1: a 401 left the previous account's cached data in
+memory), fixed with tests; its Should-fix items were verified against the code and fixed with a test that
+failed first, or recorded as not changed with the reason. Each slice was also exercised in a real Chromium
+against the real API and Postgres (the dev account was used read-only after slice 2; writes used throwaway
+and e2e accounts). Bugs found only by the real browser, not by any test: clicks on the toolbar clearing the
+selection, focus lost after Clear, an undefined CSS variable silently dropping rules, and a stale field
+error after typing. Tests of mine that turned out unable to fail, found by mutation checks or by reading them again (an
+emoji-truncation test, an accent-folding test, a synchronous "nothing was sent" check, a double-submit test).
+
+**Reported by the owner, not read by me** (my GitHub tools return check runs only for pull requests):
+`frontend-ci` and `make api-lint` for the Phase 5 OpenAPI changes were both reported green on 2026-11-12.
+
+**Measured** (one Windows laptop, Chromium 158 driven by Playwright, production build, synthetic families
+with the API mocked; see "slice 5" above for the tables and their caveats): with culling, zoom and pan hold
+46 to 60 frames per second from 1,000 to 10,000 people (zoom was 4 to 38 before). Layout is about 1 ms per
+person plus about 0.8 s fixed: 3 s at 2,000 people, 5 to 13 s at 5,000, about 11 s at 10,000. No ELK option
+saved meaningful time.
+
+**Not tested** (reasoned, not demonstrated):
+- Any **screen reader**, on any screen. Culling removed people outside the view from the DOM, so browse mode no
+  longer lists everyone; search, arrow keys and the panel's relative links reach anyone.
+- A **phone** or touch (pinch zoom, tap targets), a discrete-GPU laptop beyond one run, and browsers other
+  than Chromium.
+- The real API's response time for `GET /graph` at 5,000 and 10,000 people (the benchmark mocks it).
+- The resize path of the render window in a real browser (covered only by a stub in jsdom).
+- The end-to-end test in CI (it needs a database; `frontend-ci` runs format, typecheck, lint, test and build).
+- **One unexplained failure:** a benchmark run at 5,000 people never focused a newly added person (180 s
+  timeout); not reproduced in 10 further attempts. The benchmark now prints the page state if it recurs.
+- A 500 ms main-thread block at 10,000 people (250 ms at 5,000) with only about 300 elements drawn, so it is not
+  rendering; not investigated.
+
+**Known limits** (also under "Known issues and risks"): see the list there. The main one is layout time on
+trees of 5,000 or more people.
+
+**Proposed, not started:** Phase 7 (deployment); slice 6, "how are we related" (the API's
+`GET /persons/{id}/relationship/{otherId}` exists); starting the layout worker earlier (a fixed cost of
+about 0.8 s, untested); a progress indication beyond "Laying out your family…"; an end-to-end job in CI with
+a database; a screen-reader and real-device pass; the ego-network endpoint (only if layout time proves to
+need it); partnership dates (the API has none); photos, email flows and collaboration (each needs its own
+decision).
+
+**Deployed:** nothing.
+
+**Leftover dev data:** the local dev database holds the owner's dev account (21 seeded people), one dedicated
+e2e account (empty between runs; credentials in the gitignored `.env.local`) and three empty throwaway
+accounts from slice 4a. Each uses one of the `MAX_USERS=10` registration slots.
+
 
 ## Phase 5 outcome: proposed / implemented / tested / deployed
 
@@ -397,6 +463,7 @@ exceeded without its lock. All are fixed and covered by tests that fail without 
   (conservative; reconfirm on device). Harness in `poc3-render-bench/`.
 - Phase 4 — backend foundation, authentication and ownership: see "Phase 4 outcome" above.
 - Phase 5 — backend API for the MVP's data (closed 2026-11-09): see "Phase 5 outcome" above.
+- Phase 6 — frontend (`famiy-app/`), slices 0 to 5 (closed 2026-11-12): see "Phase 6 outcome" above.
 
 ## Decisions confirmed
 - **Scope & constraints:** small scale (hundreds–low thousands of persons per
@@ -511,26 +578,27 @@ None.
   `btrim()` strips only spaces. The domain protects the API; a one-line migration could tighten it.
 - **Per-owner advisory lock on person creation** (`int32(owner id)` as the key): serialises one
   account's creates only. A collision between two huge owner ids would only add waiting.
+- **Layout time grows with the tree (Phase 6).** About 1 ms per person plus about 0.8 s fixed (11 s at 10,000
+  people). It runs in a Web Worker, so the page stays responsive, but loading a big tree and every save
+  (the graph is refetched and laid out again) take that long. No ELK option helped; options are a progress
+  indication, starting the worker earlier, or caching, none built.
+- **Culling trades screen-reader browse mode for speed (Phase 6).** People outside the view are not in the
+  DOM. No screen reader has been run on this app.
+- **The frontend has only been measured on one laptop, in Chromium (Phase 6).** Not a phone, not other browsers.
+- **The end-to-end test is local only (Phase 6).** CI has no database for it. It relies on a dedicated account
+  because the API cannot delete accounts and caps their number.
+- **An unexplained one-off failure** at 5,000 people (see "Phase 6 outcome").
 
 ## Next actions
-Phase 6 slice 0 is committed on `main` and was reviewed by `web-reviewer` (no Must-fix findings; its
-Should-fix items on stale commit-state wording, the `api:types:check` row and `tsconfig` `types` were
-applied). Immediately next: slice 1 (auth shell), design proposed and awaiting the owner's approval.
-`frontend-ci` has still not run on GitHub: it goes straight to `main`, so open a PR for its result to
-be readable. Still outstanding from before: the `make api-lint` result for the Phase 5 OpenAPI
-changes. The list below is the original Phase 5-era plan; item 2 is now in progress.
-1. **Owner housekeeping before Phase 6:** run `make api-lint` against the Phase 5 OpenAPI changes
-   and tell me the result (I have not run Redocly). Open a PR for future slices so CI results are
-   readable from GitHub, not only reported.
-2. **Phase 6 — frontend** (`famiy-app/`: React + TypeScript): choose the rendering library
-   (Cytoscape.js vs React Flow), build the layout service from ADR-002 (elkjs `layered`, union
-   nodes, couple containers) and render `GET /graph`. Auth is cookie-based and same-origin; the
-   API requires `application/json` and a matching `Origin` on unsafe requests.
+Phase 6 is closed (2026-11-12). The owner reported `frontend-ci` and `make api-lint` green. What is next is the
+owner's choice; nothing below is started. The list is the original plan, updated.
+1. ~~Owner housekeeping before Phase 6~~ — done: `make api-lint` and CI reported green (2026-11-12).
+2. ~~Phase 6 — frontend~~ — closed (2026-11-12); slice 6 ("how are we related") was left out on purpose.
 3. **Phase 7 — deployment:** Caddy and TLS (and `encode` for gzip: the server does not compress),
    the VM, a migrate step, `TRUSTED_PROXIES`, backups, and the real-HTTPS check of the `__Host-`
    cookie. Decide the privacy and retention question before real data about living relatives goes in.
 4. **Decide the photo storage design** (own ADR) before it is needed.
-5. Deferred until something needs them: the ego-network endpoint and viewport culling (PoC-3
-   ladder), node duplication for the remarried-and-cross-branch layout case (ADR-002 limitation),
+5. Deferred until something needs them: the ego-network endpoint (viewport culling, the PoC-3
+   ladder step, is already built), node duplication for the remarried-and-cross-branch layout case (ADR-002 limitation),
    email verification and password reset, accent-insensitive search, partnership dates,
    tightening `given_name_not_blank`, tree-scoped routes and collaboration.
