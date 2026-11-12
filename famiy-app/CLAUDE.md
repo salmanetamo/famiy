@@ -54,6 +54,10 @@ down). It uses its own account, never the dev account: the first run registers i
 `E2E_TEST_EMAIL` / `E2E_TEST_PASSWORD` to the gitignored `.env.local` (the API cannot delete accounts and
 caps them with `MAX_USERS`, so one account is reused). It empties that account before it starts and
 deletes what it adds. It is not part of `npm run check` and not in CI yet (CI has no database).
+`npm run bench:scale` builds, then measures load, zoom, pan, selecting, searching and a write at 1,000 to
+10,000 synthetic people against the production build with the API mocked (only people near the view
+are drawn, so it waits for the first card, not all of them) (no database or account needed;
+see the header of `scripts/bench-scale.mjs`; `--headed` uses a real GPU).
 
 ## Skills and agents
 

@@ -224,7 +224,7 @@ insufficient on real hardware.
 - ~~Adopt elkjs as-is vs. hand-roll a simplified Sugiyama pipeline~~ — **resolved
   by PoC-2: adopt elkjs, augmented with union nodes + couple containers.**
 - ~~SVG vs. Canvas/WebGL for the MVP~~ — **resolved by PoC-3: SVG, with a culling
-  + transform ladder before Canvas.**
+  + transform ladder before Canvas.** *(Step 2, culling, was built in Phase 6 slice 5; see the ADR-005 notes.)*
 - ~~Final rendering *library*: Cytoscape.js vs. React Flow~~ — **resolved by ADR-005
   (PoC-4, 2026-11-10): custom React + SVG** fed by elkjs coordinates.
 
@@ -551,3 +551,19 @@ visible persons on a real device, or if accessibility or hit-testing cost outwei
   database. It is local only: it is not in `npm run check` and not in CI, which has no database for it. It uses
   one dedicated account (the API cannot delete accounts and caps them), empties it before starting and deletes
   what it adds.
+
+**Implementation notes (slice 5, 2026-11-12; scale and viewport culling):**
+- **ADR-002 ladder step 2 is built.** Drawing every person made zoom slow in a big tree (4 to 38 frames per
+  second at 1,000 to 10,000 people, with the cost following the number of DOM elements, not what was on
+  screen). Only the people, unions and edges inside a window around the view are now drawn; zoom is 46 to 59
+  frames per second at every size measured. Numbers and their caveats are in `03—PROJECT_STATUS.md`.
+- **Policy.** The window is the view plus one view of margin each side and is replaced only when the view
+  leaves it, shrinks far inside it, or the card style flips, so a pan does not re-render per frame. Below
+  scale 0.3 cards are drawn as bare rectangles (with hysteresis to 0.36).
+- **Keyboard and focus are the cost of culling.** The tab stop, the selected person and one about to be
+  focused are always drawn; focusing someone who is not drawn draws them first. **A screen reader's browse
+  mode no longer lists everyone**; the graph's accessible name says so, and search, arrow keys and the
+  panel's relative links reach anyone. No screen reader has been run.
+- **Layout time is not helped.** About 1 ms per person (11 s at 10,000 people) plus a fixed cost of roughly
+  0.8 s. No ELK option saved a meaningful amount (a flat CPU profile, no hot spot), and two options were far
+  worse. The benchmark (`npm run bench:scale`, API mocked) is how to measure it again.

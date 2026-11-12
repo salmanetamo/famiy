@@ -3,9 +3,9 @@
 _Last updated: 2026-11-10_
 
 ## Current phase
-**Phase 6 — frontend (`famiy-app/`): in progress. Slices 0 to 3 (spike and scaffold, auth shell, read-only graph, search and person panel) are committed on `main`. Slice 4a (add, edit and delete a person) is committed. Slice 4b (parents, partners and children, first end-to-end test) is implemented and uncommitted.**
-Slices 5–6 (scale, optional "how are we related") have not started. See
-"Phase 6, slice 0" to "slice 4b" below and ADR-005. Phase 7 = deployment has not started.
+**Phase 6 — frontend (`famiy-app/`): in progress. Slices 0 to 3 (spike and scaffold, auth shell, read-only graph, search and person panel) are committed on `main`. Slice 4a (add, edit and delete a person) is committed. Slice 4b (parents, partners and children, first end-to-end test) is committed. Slice 5 (scale) is built and uncommitted: measurements, then viewport culling. Layout time at 5,000+ people is not fixed.**
+Slice 6 (optional "how are we related") has not started. See
+"Phase 6, slice 0" to "slice 5" below and ADR-005. Phase 7 = deployment has not started.
 
 Phase 5 (the backend API) closed 2026-11-09 at the owner's word. Phase 5 delivered five slices: (1) read model, (2) person update/delete,
 (3) partnership API, (4) bio and residence, (5) derived kinship (descendants, siblings,
@@ -108,7 +108,7 @@ Slice 4 was split by the owner's approval into 4a (people) and 4b (parents, part
 | Known limits | no parent or partner editing yet (4b), so a new person has no relatives until then; the "Add person" form is dropped without warning if a person is chosen (typed text is lost, by design); a pending reveal is cleared only by a new selection, so after a permanent layout failure a later retry would move the view; names and residence have no client-side length limit; 401 is tested for a save only, not for create or delete (they share the one global handler); I did not check in Chromium whether keyboard focus is kept after a failed save (`aria-disabled` is meant to make that moot); no screen reader was run |
 | Not covered | the first Playwright suite (4b); touch; `frontend-ci` on GitHub; mid-width screens where the panel can cover the centred person (slice 3 limit) |
 
-## Phase 6, slice 4b — parents, partners, children and the first end-to-end test (2026-11-10; working tree, not committed; nothing deployed)
+## Phase 6, slice 4b — parents, partners, children and the first end-to-end test (2026-11-10; committed on `main`; nothing deployed)
 | Item | State |
 |---|---|
 | In the person panel: parents, partners and children, each with Remove; Add parent (only while there is room), Add partner (with a kind), Add child; a partnership's kind can be changed; a partner who is only linked by a shared child is shown as "(shared child)" with no kind or Remove, because no partnership is recorded | implemented; tested |
@@ -126,6 +126,87 @@ Slice 4 was split by the owner's approval into 4a (people) and 4b (parents, part
 | Dev data | the e2e account (one more of the `MAX_USERS=10` slots; empty), plus the three empty throwaway accounts from 4a. The dev account is unchanged |
 | Known limits | the narrow bottom sheet is cramped (it shows little above the fold); the picker lists matches only after typing (no "browse everyone"); partnership dates are not editable (the API has none); Remove asks no confirmation (a link can be added again); a person with only a shared child can be given a recorded partnership through Add partner, but the row itself offers nothing; the picker shows a kind selector when adding a partner and the kind is also used for a brand-new person; the e2e test is local only; the 401 path is tested for the person writes and one relationship write, not each |
 | Not covered | the e2e test in CI; touch; a screen reader (the combobox inside the panel, the `aria-disabled` buttons); `frontend-ci` on GitHub; mid-width screens where the panel can cover the centred person |
+
+## Phase 6, slice 5, part 1 — scale measurements (2026-11-10; working tree, not committed; nothing deployed)
+Slice 5 was approved as "measure first, then propose fixes from the numbers". This part is the measurement only.
+
+| Item | State |
+|---|---|
+| `famiy-app/scripts/bench-scale.mjs` (`npm run bench:scale`): serves a deterministic synthetic family (couples with 1 to 3 children, most children partnered) to the **production build** (`vite preview`) with the **whole API mocked**, so it needs no database, account or API. Measures load, long tasks, DOM size, main-thread heap, selecting a person, searching, zoom and pan frame rate, and one write (add a person → refetch → new layout → redraw → new card focused) | implemented; **run by me**: 1,000 / 2,000 / 5,000 / 10,000 people, 3 runs each, two engines. Not covered by tests or mutations (it is a measuring tool, not a protection) |
+| **Deviation from decision D:** it uses a mocked API instead of a throwaway account with seeded data, so the **real API's response time for `GET /graph` at these sizes is not measured** (only the payload size: 167 KB at 1,000, 1.7 MB at 10,000). Seeding 10,000 people through the real API would have taken far longer for no extra information about the browser | decision |
+| Conditions | One Windows machine (Intel UHD Graphics laptop), Chromium 158 driven by Playwright 1.65, viewport 1280×800, production build. **Two engines:** the headless shell (software rendering, SwiftShader) and full Chromium in headless mode (the machine's Intel GPU, Direct3D11). **Not measured:** a phone, a discrete GPU, other browsers, memory used by the layout worker (the heap figure is the main thread only), the real API |
+
+Medians of 3 runs (the spread was small except where noted). Same numbers, both engines, unless two values are shown (GPU / software):
+
+| | 1,000 | 2,000 | 5,000 | 10,000 |
+|---|---|---|---|---|
+| Load: navigation → every card drawn | 2.0 s | 2.6 s | 5.8 s | 11.6 s / 13.2 s |
+| of which: "Laying out" → first draw (worker layout + render) | 1.9 s | 2.5 s | 5.5 s | 10.9 s / 12.4 s |
+| Longest long task (main thread) | 72 ms | 128 ms | 346 ms | 600 ms / 730 ms |
+| DOM elements | 6,892 | 13,758 | 34,306 | 68,552 |
+| Select a person | 32 ms | 31 ms | 44 ms | 85 ms / 78 ms |
+| Search: typing → list | 22 ms | 36 ms | 70 ms | 130 ms / 120 ms |
+| **Zoom (a wheel event per frame), frames per second** | 38 | 20 | 8 | 4 |
+| Zoom, longest frame | 36 ms | 67 ms | 170 ms | 330 ms |
+| Pan (real mouse drag), frames per second | 60 | 60 | 59 / 58 | 51 / 43 |
+| One write → new card focused | 1.1 s | 2.1 s | 5.2 s / 5.1 s | 11.0 s / 11.8 s |
+
+What the numbers say (my reading, not further measured):
+- **The layout dominates load and every write.** It grows roughly linearly, about 1 ms per person on top of a fixed cost of roughly 1 s (500 people took 1.4 s). Drawing the cards is a few milliseconds of the wait; the rest of the wait is the worker computing the layout. Nothing in the drawing code can shorten that.
+- **Zoom is the slow interaction, and it is the same on both engines**, so it is CPU-bound and not a paint-hardware problem: it is already below 30 frames per second at 2,000 people. Pan is fine even at 10,000 because it only moves the group; zooming changes the scale and so redraws the SVG.
+- **Hardware made no visible difference** in this machine's results (the GPU and software columns agree within noise), so a faster GPU should not be expected to fix zoom.
+- Selecting a person and searching stay under 100 ms until about 5,000; at 10,000 search is 120 to 130 ms.
+- Against the targets proposed with the slice (first graph under 3 s at 2k and 6 s at 10k; no long task over 200 ms; zoom and pan at 30 frames per second or more; a write done in under 3 s at 2k): **at 2,000 people everything passes except zoom (20 fps)**; at 5,000 and 10,000 load, the long task, zoom and the write all fail. The requirements say "hundreds to low thousands".
+
+Not done in these parts: any fix. Viewport culling was built afterwards (part 3).
+
+### Slice 5, part 2 — what the layout time is made of, and one more zoom measurement (2026-11-10)
+| Item | State |
+|---|---|
+| **ELK options do not save layout time.** Throwaway Node experiment (not committed; the script is not in the repo) running the app's own `layoutFamily` on the same synthetic family at 1,000 / 5,000 / 10,000 people, after a discarded warm-up run. `thoroughness` 3 and 1, greedy switch off, both combined, and "no model order" all landed inside the run-to-run noise of the baseline (at 10,000 the baseline itself ran 11.2 s and 13.2 s). `LINEAR_SEGMENTS` placement took **164 s at 5,000 and 302 s at 10,000**; `SIMPLE` placement took 8.6 s / 28 s and made the layout 35,000 to 70,000 px tall (unusable); `LONGEST_PATH` layering was no faster and changes where spouses sit (8 rows instead of 4 to 5) | **Run by me.** Nothing in the app changed |
+| **Where ELK's time goes.** ELK's own execution-time log summed to 0.02 s for a 6.8 s run, so I did not trust it. A Node CPU profile of the 5,000-person layout is flat: the single largest item is 9% (its minified code) and garbage collection another 9%; the app's own code (the part that orders people) was about 1%. So the time is spread through ELK itself, and there is no hot spot to tune away | **Run by me** |
+| Worker versus Node | The browser layout at 10,000 (about 10.9 s) matches Node's (about 11 to 13 s), so the worker adds no meaningful cost at that size. At 500 people the browser took 1.4 s against about 0.5 s in Node after warm-up: a fixed cost of roughly 0.8 s for starting the worker and loading its 1.46 MB script. **Not tested:** whether starting the worker earlier or warming it up would hide that | measured, not acted on |
+| **Zoom costs the same at "Fit" as at the opening view** (new metric `zoom after Fit`, one run each, GPU engine): 19 fps against 19 at 2,000 people; 7 against 7 at 5,000. So the zoom cost follows the number of DOM elements, not how many are on screen | **Run by me**; one run per size, so the exact figures are looser than the table above |
+| Caveat on the synthetic family | Its shape is unrealistic: the layout comes out only **4 to 5 generations deep and enormously wide** (about 82,000 px at 1,000 people and 857,000 px at 10,000), because my generator fills one generation after another. A real 10,000-person tree would be deeper and narrower. Layout time may differ for a real shape, and a wide row also means most people are far off screen, which favours culling. The timings are therefore good evidence for the *trend* (about linear) and weaker for the exact seconds | limitation |
+
+### Slice 5, part 3 — viewport culling (2026-11-12; working tree, not committed; nothing deployed)
+| Item | State |
+|---|---|
+| **Viewport culling** (ADR-002 ladder step 2): only the people, unions and edges inside a window around the view are drawn. The window is the view plus one view of margin on each side, kept in state, and replaced only when the view leaves it, when it has become 20 times the view's area (zoomed in), or when the cards should switch between full and compact; pan and zoom still run through refs and a CSS transform. Pure maths in `view/renderWindow.ts`; layout is untouched | implemented; tested |
+| **Compact cards**: below scale 0.3 a card is drawn as a bare rectangle (no text, no tooltip), back to full above 0.36 (hysteresis). `role`, `aria-label`, `tabindex`, `aria-pressed` and the focus style stay | implemented; tested |
+| **Who is always drawn:** the tab stop (which is the person with focus once anything has focus), the selected person, and one about to be focused. `focusPerson` on someone who is not drawn draws them first and focuses them in a layout effect, so arrow keys, "go to a person", search and the relative links reach people outside the window | implemented; tested |
+| Resize: a `ResizeObserver` re-reports the view when the container changes size | implemented; tested with a stub (jsdom has none); **not seen in a real browser** |
+| Frontend tests | **Run by me:** 340 tests in 24 files pass; `npm run check` exited 0 twice before the last review edits and the full suite passed after them |
+| Mutation checks (23 that count; each removed one protection and a named test failed; files restored and checked) | **First round (19):** the view rectangle ignoring zoom, a window with no margin, containment ignoring one edge, touching rectangles, no hysteresis, an oversized window never replaced, the compact switch ignored, edges kept by endpoints instead of by box, an empty-edge guard, each of the "always drawn" people, the pending focus never applied, compact not passed to cards, resize not followed, the window never replaced after the first, view changes not reported, compact cards still drawing text. **Five survived at first:** touching rectangles (my test touched only one side; fixed); the empty-edge guard (an **equivalent mutant**: without it the comparisons are NaN and an empty edge is dropped anyway, so I kept the explicit guard and record it); and the three "always drawn" pins, which showed a real test gap: the person with focus is always the tab stop, so those two pins overlap (the redundant one is removed), and no test isolated the tab stop (dragging the view away before anything had focus) or the selected person (selecting, then moving focus on, then panning); both tests are added and now kill those mutations. **After the review (4):** the single-attempt focus, the accessible label in each direction, and a drag that does not move the view. All killed |
+| Review (`web-reviewer`) | No Must-fix. It read the code only. Fixed: the group's accessible name now says when only part of a big tree is drawn ("Family graph, 400 people. Only those near the view are drawn; use the search box to find anyone else."), and is plain "Family graph" when everyone is drawn; a pending focus request now gets one attempt only, so a later render cannot steal focus (test); two tests were weaker than they claimed (a click-based "selected stays drawn" test that the focus pin also satisfied, now removed; a drag test that never asserted the view moved, now does); a comment on `forcedId`, which stays until the next jump and costs at most one card. **Not changed, and why:** the view's size is read with `getBoundingClientRect` on every view change, which could force a layout each frame; the benchmark shows 56 to 61 frames per second for zoom and pan with it, so there is no evidence it hurts, and I did not cache it |
+
+**Measured with culling** (benchmark, full Chromium, **one machine; the graphics adapter was the Intel GPU for the 1,000 to 5,000 runs and the NVIDIA GeForce GTX 1650 Ti for the 10,000 run**, which Chromium chose on its own). Zoom did not depend on the GPU before culling (the GPU and software engines agreed), so the comparison below is reasonable, but it is not a controlled one:
+
+| | 1,000 | 2,000 | 5,000 | 10,000 |
+|---|---|---|---|---|
+| Runs | 3 | 3 | **1** | **1** |
+| DOM elements: before → after | 6,892 → 375 | 13,758 → 342 | 34,306 → 319 | 68,552 → 313 |
+| People drawn after load | 49 | 45 | 42 | 40 |
+| **Zoom, frames per second: before → after** | 38 → 57 | 20 → 57 | 8 → 46 | 4 → 59 |
+| Zoom after Fit, frames per second: before → after | not measured → 46 | 19 → 57 | 7 → 51 | not measured → 61 |
+| Pan (real drag), frames per second: before → after | 60 → 56.5 | 60 → 56.7 | 59 → 56 | 51 → 60 |
+| Longest long task: before → after | 72 → 0 ms | 128 → 0 ms | 346 → 248 ms | 600 → 502 ms |
+| Select a person / search | about 30 ms / 15 ms | about 30 ms / 15 ms | 33 ms / 23 ms | 25 ms / 15 ms |
+| Load (navigation → first card) | 2.0 s → 2.6 s | 2.6 s → 3.6 s | 5.8 s → 13.3 s | 11.6 s → 11.3 s |
+| One write → new card focused | 1.1 s → 1.7 s | 2.1 s → 3.8 s | 5.2 s → 9.1 s | 11.0 s → 10.4 s |
+
+Reading it:
+- **Culling did what it was built for.** Zoom is now 46 to 59 frames per second at every size (it was 4 to 38), the DOM no longer grows with the tree, and the main-thread block at load is gone at 2,000 people and below.
+- **Load and write times did not improve and cannot be compared:** layout is unchanged by culling and still dominates (about 1 ms per person). The "after" figures at 1,000 to 5,000 are *slower* than the "before" ones, but the same machine ran visibly slower in those runs (the spread within a size is 2007 to 2686 ms at 1,000, and an identical-code 5,000-person load took 13 s once and 6 to 8 s in my other attempts), so I attribute that to the machine, not to culling. I did not rerun to confirm.
+- **A 500 ms block remains at 10,000 people** (250 ms at 5,000). With 313 elements drawn it is not rendering; it is parsing the graph, building the layout input, and receiving the result. Not investigated.
+- **A single long frame after pressing Fit:** 437 ms in 2 of 3 runs at 1,000 people and 1,094 ms in 1 of 3 at 2,000, because the whole tree (as compact cards) is then mounted at once. It is one frame per Fit, not a sustained slowdown.
+- Against the targets proposed with the slice: **zoom and pan now pass at every size; first graph visible and a write finishing quickly still fail at 5,000 and 10,000 people** (layout), and are borderline at 2,000 on this machine.
+
+| Item | State |
+|---|---|
+| **An unexplained failure** | In one run, at 5,000 people, the "add a person → new card focused" step timed out after 180 s (the first run of that size took 9 s). I ran 10 further attempts at 5,000 people (5 straight after load, 5 after replaying the benchmark's earlier steps: select, search, zoom, Fit, drag), all passed in 5 to 8 s, and a 1,000-person smoke run passed. **Cause unknown**; the machine was visibly slow during that run, and I captured no page state at the time. The benchmark now prints the page's state when that step fails, so a recurrence can be diagnosed | open |
+| Known limits (new) | **People outside the window are not in the DOM, so a screen reader's browse mode no longer lists everyone**; they are reachable by search, by arrow keys (which now draw the neighbour first) and by the relative links in the panel. The graph's accessible name says so. No screen reader was run. Also: "Fit" is clamped at the smallest zoom (0.05), so a very wide tree is not wholly in view; a 10,000-person tree seen from far out still draws every person it can see (as compact cards); the resize path was not seen in a real browser; the software-rendering engine and a phone were not re-measured with culling |
+| Not done | layout time (about 1 ms per person, no cheap fix found, see part 2); starting the layout worker earlier (a fixed cost of roughly 0.8 s, untested); a progress indication beyond the existing "Laying out your family…" status; the 500 ms main-thread block at 10,000 |
 
 ## Phase 5 outcome: proposed / implemented / tested / deployed
 
